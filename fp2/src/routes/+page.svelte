@@ -4,14 +4,94 @@
   import * as d3 from 'd3';
 
   let map;
-  const MAPBOX_TOKEN = 'pk.eyJ1Ijoic3N1byIsImEiOiJjbTk5Z2NnNWIwNDh5MnJwdjFwZGhnZmU2In0.DlLRt3C3qdBGprZR4SvRVQ';
+  const MAPBOX_TOKEN =
+    'pk.eyJ1Ijoic3N1byIsImEiOiJjbTk5Z2NnNWIwNDh5MnJwdjFwZGhnZmU2In0.DlLRt3C3qdBGprZR4SvRVQ';
 
+  // Map configuration:
   let longitude = -71.0589;
   let latitude = 42.3601;
   let zoom = 8.5;
 
-  async function initMap() {
-    // Initialize the map
+  // Filter state stored as arrays.
+  // When empty, that category produces no filtering.
+  let selectedIncome = [];
+  let selectedFamily = [];
+
+  // CSV data will be stored in a Map keyed by fid.
+  let csvData = new Map();
+
+  // Define income buckets – keys must match button labels.
+  const incomeBuckets = {
+    'Under $25K': ['incu10', 'inc1015', 'inc1520', 'inc2025'],
+    '$25K - $50K': ['inc2530', 'inc3035', 'inc3540', 'inc4045', 'inc4550'],
+    '$50K - $75K': ['inc5060', 'inc6075'],
+    '$75K - $100K': ['inc7585', 'inc85100'],
+    '$100K - $150K': ['inc100125', 'inc125150'],
+    '$150K & above': ['inc150200', 'inc200more']
+  };
+
+  // Define family fields – keys must match button labels.
+  const familyFields = {
+    '1-person': ['nfhh1'],
+    '2-person': ['fhh2', 'nfhh2'],
+    '3-person': ['fhh3', 'nfhh3'],
+    '4-person': ['fhh4', 'nfhh4'],
+    '5-person': ['fhh5p', 'nfhh5p'],
+    '6-person': [],
+    '7+ persons': []
+  };
+
+  const MATCH_THRESHOLD = 0.05;
+
+  // Toggle functions for filter buttons.
+  function toggleIncome(bucket) {
+    if (bucket === 'All Income Levels') {
+      selectedIncome = [];
+    } else if (selectedIncome.includes(bucket)) {
+      selectedIncome = selectedIncome.filter(b => b !== bucket);
+    } else {
+      selectedIncome = [...selectedIncome, bucket];
+    }
+  }
+
+  function toggleFamily(bucket) {
+    if (bucket === 'All Family Sizes') {
+      selectedFamily = [];
+    } else if (selectedFamily.includes(bucket)) {
+      selectedFamily = selectedFamily.filter(b => b !== bucket);
+    } else {
+      selectedFamily = [...selectedFamily, bucket];
+    }
+  }
+
+  function resetFilters() {
+    selectedIncome = [];
+    selectedFamily = [];
+  }
+
+  // isMatch: returns true if the CSV row satisfies active filters.
+  // If both are empty, returns false so nothing is highlighted.
+  function isMatch(row) {
+    // For debugging:
+    // console.log('Checking row for filters:', row);
+    if (selectedIncome.length === 0 && selectedFamily.length === 0) {
+      return false;
+    }
+    const incomeMatch =
+      selectedIncome.length === 0 ||
+      selectedIncome.some(bucket =>
+        incomeBuckets[bucket].reduce((sum, col) => sum + (+row[col] || 0), 0) > 0
+      );
+    const familyMatch =
+      selectedFamily.length === 0 ||
+      selectedFamily.some(bucket =>
+        familyFields[bucket].reduce((sum, col) => sum + (+row[col] || 0), 0) > 0
+      );
+    return incomeMatch && familyMatch;
+  }
+
+  // onMount: Initialize the Mapbox map and load data.
+  onMount(async () => {
     mapboxgl.accessToken = MAPBOX_TOKEN;
     map = new mapboxgl.Map({
       container: 'map',
@@ -19,72 +99,101 @@
       center: [longitude, latitude],
       zoom: zoom
     });
+    map.addControl(new mapboxgl.NavigationControl(), 'top-right');
 
-    // Wait for the map to load
-    await new Promise(resolve => map.on("load", resolve));
+    // Load CSV data (ensure it's in your public folder).
+    const rawCsv = await d3.csv('/housing_sf_other_w_census.csv');
+    rawCsv.forEach(row => csvData.set(row.fid, row));
 
-    // Load the zoning geodata
-    const zoning = await fetch('/housing_sf_other_w_census_reprojected.geojson').then(res => res.json());
+    // Wait for the map to load.
+    await new Promise(resolve => map.on('load', resolve));
+
+    // Load GeoJSON data.
+    const zoning = await fetch('/housing_sf_other_w_census_reprojected.geojson')
+                          .then(res => res.json());
+
+    // Compute initial match property for each feature.
+    zoning.features.forEach(f => {
+      const row = csvData.get(f.properties.fid);
+      f.properties.match = row ? (isMatch(row) ? 1 : 0) : 0;
+    });
+
+    // Add GeoJSON source.
     map.addSource('zoning', {
       type: 'geojson',
       data: zoning
     });
 
-    // Color the zoning by municipality
+    // Add fill layer with a conditional fill-color.
     map.addLayer({
       id: 'zoning-fill',
       type: 'fill',
       source: 'zoning',
       paint: {
-        'fill-color': '#d6c7b3',  // soft warm tan
-        'fill-opacity': 0.5
+        'fill-color': [
+          'case',
+          ['==', ['get', 'match'], 1],
+          '#ffed6f', // highlighted fill color
+          '#d6c7b3'  // default fill
+        ],
+        'fill-opacity': 0.7
       }
     });
 
-    // Add the outline layer
+    // Outline layer.
     map.addLayer({
       id: 'zoning-outline',
       type: 'line',
       source: 'zoning',
       paint: {
-        'line-color': '#bfa9a0',  // muted warm brown
+        'line-color': '#bfa9a0',
         'line-width': 1
       }
     });
 
-    // hover effect
-    const popup = new mapboxgl.Popup({
-      closeButton: false,
-      closeOnClick: false
-    });
-
+    // Setup hover popup.
+    const popup = new mapboxgl.Popup({ closeButton: false, closeOnClick: false });
     map.on('mouseenter', 'zoning-fill', (e) => {
       map.getCanvas().style.cursor = 'pointer';
-
       const feature = e.features[0];
       const muni = feature.properties.muni;
-
-      popup
-        .setLngLat(e.lngLat)
-        .setHTML(`<strong>${muni}</strong>`)
-        .addTo(map);
+      popup.setLngLat(e.lngLat)
+           .setHTML(`<strong>${muni}</strong>`)
+           .addTo(map);
     });
-
     map.on('mouseleave', 'zoning-fill', () => {
       map.getCanvas().style.cursor = '';
       popup.remove();
     });
-
-  }
-
-  onMount(() => {
-    initMap();
-    map.addControl(new mapboxgl.NavigationControl(), 'top-right');
   });
 
+  // Reactive block: Update the GeoJSON source when filter selections change.
+  $: {
+    // Add selectedIncome and selectedFamily to the dependency.
+    console.log('Filters changed: Income:', selectedIncome, 'Family:', selectedFamily);
+    if (
+      map &&
+      map.isStyleLoaded() &&
+      map.getSource('zoning') &&
+      csvData.size > 0
+    ) {
+      const source = map.getSource('zoning');
+      const geojson = source._data;
+      // Log sample feature match value for debugging.
+      geojson.features.slice(0, 3).forEach(f => {
+        const row = csvData.get(String(f.properties.fid).trim());
+        const m = row ? isMatch(row) : false;
+        console.log(`fid ${f.properties.fid}: match = ${m}`);
+      });
+      geojson.features.forEach(f => {
+        const row = csvData.get(String(f.properties.fid).trim());
+        f.properties.match = row ? (isMatch(row) ? 1 : 0) : 0;
+      });
+      source.setData(geojson);
+    }
+  }
 </script>
 
-<!-- Page Layout -->
 <div class="page">
   <section class="intro">
     <h1>Explore Housing Access in Greater Boston</h1>
@@ -101,27 +210,79 @@
       </div>
 
       <div class="filters-container">
-        <!-- Income Level -->
+        <!-- Income Level Filter Group -->
         <div class="filter-group">
           <h4>Income Level</h4>
-          <button>Under $25K</button>
-          <button>$25K - $50K</button>
-          <button>$50K - $75K</button>
-          <button>$75K - $100K</button>
-          <button>$100K - $150K</button>
-          <button>$150K & above</button>
+          <button on:click={() => toggleIncome('All Income Levels')}
+                  class:active={selectedIncome.length === 0}>
+            All Income Levels
+          </button>
+          <button on:click={() => toggleIncome('Under $25K')}
+                  class:active={selectedIncome.includes('Under $25K')}>
+            Under $25K
+          </button>
+          <button on:click={() => toggleIncome('$25K - $50K')}
+                  class:active={selectedIncome.includes('$25K - $50K')}>
+            $25K - $50K
+          </button>
+          <button on:click={() => toggleIncome('$50K - $75K')}
+                  class:active={selectedIncome.includes('$50K - $75K')}>
+            $50K - $75K
+          </button>
+          <button on:click={() => toggleIncome('$75K - $100K')}
+                  class:active={selectedIncome.includes('$75K - $100K')}>
+            $75K - $100K
+          </button>
+          <button on:click={() => toggleIncome('$100K - $150K')}
+                  class:active={selectedIncome.includes('$100K - $150K')}>
+            $100K - $150K
+          </button>
+          <button on:click={() => toggleIncome('$150K & above')}
+                  class:active={selectedIncome.includes('$150K & above')}>
+            $150K & above
+          </button>
         </div>
 
-        <!-- Family Size -->
+        <!-- Family Size Filter Group -->
         <div class="filter-group">
           <h4>Family Size</h4>
-          <button>1-person</button>
-          <button>2-person</button>
-          <button>3-person</button>
-          <button>4-person</button>
-          <button>5-person</button>
-          <button>6-person</button>
-          <button>7+ persons</button>
+          <button on:click={() => toggleFamily('All Family Sizes')}
+                  class:active={selectedFamily.length === 0}>
+            All Family Sizes
+          </button>
+          <button on:click={() => toggleFamily('1-person')}
+                  class:active={selectedFamily.includes('1-person')}>
+            1-person
+          </button>
+          <button on:click={() => toggleFamily('2-person')}
+                  class:active={selectedFamily.includes('2-person')}>
+            2-person
+          </button>
+          <button on:click={() => toggleFamily('3-person')}
+                  class:active={selectedFamily.includes('3-person')}>
+            3-person
+          </button>
+          <button on:click={() => toggleFamily('4-person')}
+                  class:active={selectedFamily.includes('4-person')}>
+            4-person
+          </button>
+          <button on:click={() => toggleFamily('5-person')}
+                  class:active={selectedFamily.includes('5-person')}>
+            5-person
+          </button>
+          <button on:click={() => toggleFamily('6-person')}
+                  class:active={selectedFamily.includes('6-person')}>
+            6-person
+          </button>
+          <button on:click={() => toggleFamily('7+ persons')}
+                  class:active={selectedFamily.includes('7+ persons')}>
+            7+ persons
+          </button>
+        </div>
+
+        <!-- Reset Button -->
+        <div class="filter-group">
+          <button on:click={resetFilters} class="reset-button">Reset All Filters</button>
         </div>
       </div>
     </div>
@@ -129,8 +290,10 @@
 
   <section class="filtered-output">
     <h3>Filtered Municipalities</h3>
-    <p>Select income levels and family sizes to see matching municipalities.</p>
-  </section>  
+    <p>
+      The map highlights zoning areas that match the selected income and family size criteria.
+    </p>
+  </section>
 
   <section class="conclusion">
     <h2>Why Zoning Reform Matters</h2>
@@ -152,30 +315,25 @@
     margin: 0;
     padding: 0;
   }
-
   .intro {
     background: #d8a59c;
     padding: 3rem 1rem;
     text-align: center;
     color: white;
   }
-
   .intro h1 {
     font-size: 2.5rem;
     margin-bottom: 1rem;
   }
-
   .intro p {
     max-width: 600px;
     margin: 0 auto;
     font-size: 1.2rem;
   }
-
   .map-section {
     padding: 2rem 1rem;
     background: white;
   }
-
   .map-and-filters {
     display: flex;
     flex-wrap: wrap;
@@ -185,7 +343,6 @@
     max-width: 1200px;
     margin: 0 auto;
   }
-
   .map-container {
     background: #d6c7b3;
     width: 100%;
@@ -194,31 +351,26 @@
     border-radius: 10px;
     overflow: hidden;
   }
-
+  #map {
+    width: 100%;
+    height: 100%;
+  }
   .filters-container {
     display: flex;
     flex-direction: column;
     gap: 2rem;
     min-width: 250px;
   }
-
-  #map {
-    width: 100%;
-    height: 100%;
-  }
-
   .filter-group {
     margin-bottom: 1rem;
     width: 100%;
   }
-
   .filter-group h4 {
     font-size: 0.9rem;
     text-transform: uppercase;
     color: #555;
     margin-bottom: 0.5rem;
   }
-
   .filter-group button {
     display: block;
     width: 100%;
@@ -233,51 +385,23 @@
     cursor: pointer;
     transition: all 0.2s ease;
   }
-
   .filter-group button:hover {
     background: #ccc;
     transform: translateY(-2px);
   }
-
   .filter-group button:active {
     background: #d8a59c;
     color: white;
   }
-
-  @media (max-width: 768px) {
-    .map-and-filters {
-      flex-direction: column;
-      align-items: center;
-    }
-
-    .map-container {
-      height: 400px;
-    }
-
-    .filters-container {
-      width: 100%;
-      max-width: 800px;
-    }
-  }
-
-  .conclusion {
-    background: #bfa9a0;
+  .filter-group button.active {
+    background: #d8a59c;
     color: white;
-    text-align: center;
-    padding: 3rem 1rem;
   }
-
-  .conclusion h2 {
-    font-size: 1.8rem;
-    margin-bottom: 1rem;
+  .reset-button {
+    background: #ff6347;
+    color: white;
+    font-weight: bold;
   }
-
-  .conclusion p {
-    max-width: 700px;
-    margin: 0 auto;
-    font-size: 1.1rem;
-  }
-
   .filtered-output {
     margin: 2rem auto;
     padding: 1rem;
@@ -286,5 +410,20 @@
     background: #fffaf3;
     width: 90%;
     max-width: 900px;
+  }
+  .conclusion {
+    background: #bfa9a0;
+    color: white;
+    text-align: center;
+    padding: 3rem 1rem;
+  }
+  .conclusion h2 {
+    font-size: 1.8rem;
+    margin-bottom: 1rem;
+  }
+  .conclusion p {
+    max-width: 700px;
+    margin: 0 auto;
+    font-size: 1.1rem;
   }
 </style>
