@@ -9,11 +9,9 @@
   // Map configuration:
   let longitude = -71.0589;
   let latitude = 42.3601;
-  let zoom = 8.5;
+  let zoom = 9; // Default zoom adjusted to 8
 
   // Filter state stored as arrays.
-  // The button logic remains unchanged.
-  // An empty array for a category means "no filtering" (i.e. all values are accepted).
   let selectedIncome = [];
   let selectedFamily = [];
 
@@ -40,8 +38,6 @@
     '6-person': [],
     '7+ persons': []
   };
-
-  const MATCH_THRESHOLD = 0.05; // Not used in the new logic for highlighting; our match is binary
 
   // Toggle functions for filter buttons.
   function toggleIncome(bucket) {
@@ -70,11 +66,7 @@
   }
 
   // Updated isMatch function:
-  // - If both selectedIncome and selectedFamily are empty, return true (highlight all areas).
-  // - Otherwise, for each active category, return true if the row has a positive value in at least one column.
-  // - Across categories, the result is the logical AND.
   function isMatch(row) {
-    // If no filters are active, highlight all.
     if (selectedIncome.length === 0 && selectedFamily.length === 0) {
       return true;
     }
@@ -93,7 +85,17 @@
     return incomeMatch && familyMatch;
   }
 
-  // onMount: Initialize the Mapbox map and load data.
+  // Function to recenter the map.
+  function recenterMap() {
+    if (map) {
+      map.flyTo({
+        center: [longitude, latitude],
+        zoom: zoom
+      });
+    }
+  }
+
+  // onMount: Initialize the map and load data.
   onMount(async () => {
     mapboxgl.accessToken = MAPBOX_TOKEN;
     map = new mapboxgl.Map({
@@ -104,7 +106,7 @@
     });
     map.addControl(new mapboxgl.NavigationControl(), 'top-right');
 
-    // Load the CSV data into a Map (keyed by fid).
+    // Load CSV data
     const rawCsv = await d3.csv('/housing_sf_other_w_census.csv');
     rawCsv.forEach(row => {
       csvData.set(row.fid, row);
@@ -129,8 +131,7 @@
       data: zoning
     });
 
-    // Add fill layer with fill-color set conditionally on match.
-    // If match equals 1, use the highlight color; otherwise, use the default.
+    // Add fill layer with updated fill colors.
     map.addLayer({
       id: 'zoning-fill',
       type: 'fill',
@@ -139,23 +140,12 @@
         'fill-color': [
           'case',
           ['==', ['get', 'match'], 1],
-          '#c19770', // Highlighted fill when criteria are met.
-          '#d6c7b3'  // Default fill when criteria not met.
+          '#ff7f50',  // Filtered highlight: darker coral
+          '#ffccb3'   // Default fill: light coral
         ],
         'fill-opacity': 0.7
       }
     });
-
-    // // Add outline layer.
-    // map.addLayer({
-    //   id: 'zoning-outline',
-    //   type: 'line',
-    //   source: 'zoning',
-    //   paint: {
-    //     'line-color': '#bfa9a0',
-    //     'line-width': 1
-    //   }
-    // });
 
     // Setup hover popup.
     const popup = new mapboxgl.Popup({ closeButton: false, closeOnClick: false });
@@ -173,8 +163,7 @@
     });
   });
 
-  // Reactive block: Whenever selectedIncome or selectedFamily changes,
-  // update the match property for each feature and refresh the map source.
+  // Reactive block to update the map when filters change.
   $: {
     console.log('Filters changed - Income:', selectedIncome, 'Family:', selectedFamily);
     if (map && map.isStyleLoaded() && map.getSource('zoning') && csvData.size > 0) {
@@ -200,106 +189,111 @@
 
   <section class="map-section">
     <div class="map-and-filters">
-      <div class="map-container">
-        <div id="map"></div>
+      <!-- Sidebar containing Filters -->
+      <div class="sidebar">
+        <div class="filters-container">
+          <!-- Income Level Filter Group -->
+          <div class="filter-group">
+            <h4>Income Level</h4>
+            <button on:click={() => toggleIncome('All Income Levels')}
+                    class:active={selectedIncome.length === 0}>
+              All Income Levels
+            </button>
+            <button on:click={() => toggleIncome('Under $25K')}
+                    class:active={selectedIncome.includes('Under $25K')}>
+              Under $25K
+            </button>
+            <button on:click={() => toggleIncome('$25K - $50K')}
+                    class:active={selectedIncome.includes('$25K - $50K')}>
+              $25K - $50K
+            </button>
+            <button on:click={() => toggleIncome('$50K - $75K')}
+                    class:active={selectedIncome.includes('$50K - $75K')}>
+              $50K - $75K
+            </button>
+            <button on:click={() => toggleIncome('$75K - $100K')}
+                    class:active={selectedIncome.includes('$75K - $100K')}>
+              $75K - $100K
+            </button>
+            <button on:click={() => toggleIncome('$100K - $150K')}
+                    class:active={selectedIncome.includes('$100K - $150K')}>
+              $100K - $150K
+            </button>
+            <button on:click={() => toggleIncome('$150K & above')}
+                    class:active={selectedIncome.includes('$150K & above')}>
+              $150K & above
+            </button>
+          </div>
+
+          <!-- Family Size Filter Group -->
+          <div class="filter-group">
+            <h4>Family Size</h4>
+            <button on:click={() => toggleFamily('All Family Sizes')}
+                    class:active={selectedFamily.length === 0}>
+              All Family Sizes
+            </button>
+            <button on:click={() => toggleFamily('1-person')}
+                    class:active={selectedFamily.includes('1-person')}>
+              1-person
+            </button>
+            <button on:click={() => toggleFamily('2-person')}
+                    class:active={selectedFamily.includes('2-person')}>
+              2-person
+            </button>
+            <button on:click={() => toggleFamily('3-person')}
+                    class:active={selectedFamily.includes('3-person')}>
+              3-person
+            </button>
+            <button on:click={() => toggleFamily('4-person')}
+                    class:active={selectedFamily.includes('4-person')}>
+              4-person
+            </button>
+            <button on:click={() => toggleFamily('5-person')}
+                    class:active={selectedFamily.includes('5-person')}>
+              5-person
+            </button>
+            <button on:click={() => toggleFamily('6-person')}
+                    class:active={selectedFamily.includes('6-person')}>
+              6-person
+            </button>
+            <button on:click={() => toggleFamily('7+ persons')}
+                    class:active={selectedFamily.includes('7+ persons')}>
+              7+ persons
+            </button>
+          </div>
+
+          <!-- Reset Button -->
+          <div class="filter-group">
+            <button on:click={resetFilters} class="reset-button">
+              Reset All Filters
+            </button>
+          </div>
+        </div>
       </div>
 
-      <div class="filters-container">
-        <!-- Income Level Filter Group -->
-        <div class="filter-group">
-          <h4>Income Level</h4>
-          <button on:click={() => toggleIncome('All Income Levels')}
-                  class:active={selectedIncome.length === 0}>
-            All Income Levels
-          </button>
-          <button on:click={() => toggleIncome('Under $25K')}
-                  class:active={selectedIncome.includes('Under $25K')}>
-            Under $25K
-          </button>
-          <button on:click={() => toggleIncome('$25K - $50K')}
-                  class:active={selectedIncome.includes('$25K - $50K')}>
-            $25K - $50K
-          </button>
-          <button on:click={() => toggleIncome('$50K - $75K')}
-                  class:active={selectedIncome.includes('$50K - $75K')}>
-            $50K - $75K
-          </button>
-          <button on:click={() => toggleIncome('$75K - $100K')}
-                  class:active={selectedIncome.includes('$75K - $100K')}>
-            $75K - $100K
-          </button>
-          <button on:click={() => toggleIncome('$100K - $150K')}
-                  class:active={selectedIncome.includes('$100K - $150K')}>
-            $100K - $150K
-          </button>
-          <button on:click={() => toggleIncome('$150K & above')}
-                  class:active={selectedIncome.includes('$150K & above')}>
-            $150K & above
-          </button>
-        </div>
-
-        <!-- Family Size Filter Group -->
-        <div class="filter-group">
-          <h4>Family Size</h4>
-          <button on:click={() => toggleFamily('All Family Sizes')}
-                  class:active={selectedFamily.length === 0}>
-            All Family Sizes
-          </button>
-          <button on:click={() => toggleFamily('1-person')}
-                  class:active={selectedFamily.includes('1-person')}>
-            1-person
-          </button>
-          <button on:click={() => toggleFamily('2-person')}
-                  class:active={selectedFamily.includes('2-person')}>
-            2-person
-          </button>
-          <button on:click={() => toggleFamily('3-person')}
-                  class:active={selectedFamily.includes('3-person')}>
-            3-person
-          </button>
-          <button on:click={() => toggleFamily('4-person')}
-                  class:active={selectedFamily.includes('4-person')}>
-            4-person
-          </button>
-          <button on:click={() => toggleFamily('5-person')}
-                  class:active={selectedFamily.includes('5-person')}>
-            5-person
-          </button>
-          <button on:click={() => toggleFamily('6-person')}
-                  class:active={selectedFamily.includes('6-person')}>
-            6-person
-          </button>
-          <button on:click={() => toggleFamily('7+ persons')}
-                  class:active={selectedFamily.includes('7+ persons')}>
-            7+ persons
-          </button>
-        </div>
-
-        <!-- Reset Button -->
-        <div class="filter-group">
-          <button on:click={resetFilters} class="reset-button">
-            Reset All Filters
-          </button>
+      <!-- Map Container with Legend and Recenter Button -->
+      <div class="map-container">
+        <div id="map"></div>
+        <button class="recenter-button" on:click={recenterMap}>Recenter</button>
+        <div class="legend">
+          <h4>Legend</h4>
+          <div class="legend-item">
+            <span class="color-box default"></span>
+            <span>Default</span>
+          </div>
+          <div class="legend-item">
+            <span class="color-box highlighted"></span>
+            <span>Filtered</span>
+          </div>
         </div>
       </div>
     </div>
   </section>
 
-  <section class="filtered-output">
-    <h3>Filtered Municipalities</h3>
-    <p>
-      The map highlights zoning areas that match the selected income and family size criteria.
-    </p>
-  </section>
-
-  <section class="conclusion">
-    <h2>Why Zoning Reform Matters</h2>
-    <p>
-      With 65% of Greater Boston zoned for single-family homes,
-      multi-family and affordable options are scarce.
-      Zoning reform can help build a more inclusive and equitable housing future.
-    </p>
-  </section>
+  <!-- Footer placed at the end of the page -->
+  <footer class="footer">
+    <p>© 2025 Blueprint Boston.</p>
+  </footer>
 </div>
 
 <style>
@@ -311,6 +305,9 @@
     color: #3e3e3e;
     margin: 0;
     padding: 0;
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
   }
   .intro {
     background: #d8a59c;
@@ -330,36 +327,30 @@
   .map-section {
     padding: 2rem 1rem;
     background: white;
+    flex-grow: 1;
   }
   .map-and-filters {
     display: flex;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     gap: 2rem;
-    justify-content: flex-start;
-    align-items: flex-start;
+    justify-content: center;
+    align-items: stretch;
     max-width: 1200px;
     margin: 0 auto;
   }
-  .map-container {
-    background: #d6c7b3;
-    width: 100%;
-    max-width: 800px;
-    height: 600px;
-    border-radius: 10px;
-    overflow: hidden;
-  }
-  #map {
-    width: 100%;
-    height: 100%;
+  /* Sidebar: contains the filters */
+  .sidebar {
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-start;
+    min-width: 250px;
   }
   .filters-container {
     display: flex;
     flex-direction: column;
-    gap: 2rem;
-    min-width: 250px;
+    gap: 1rem;
   }
   .filter-group {
-    margin-bottom: 1rem;
     width: 100%;
   }
   .filter-group h4 {
@@ -399,28 +390,74 @@
     color: white;
     font-weight: bold;
   }
-  .filtered-output {
-    margin: 2rem auto;
-    padding: 1rem;
-    border: 1px solid #bbb;
-    border-radius: 8px;
-    background: #fffaf3;
-    width: 90%;
-    max-width: 900px;
+  .map-container {
+    background: #d6c7b3;
+    width: 100%;
+    max-width: 800px;
+    height: 600px;
+    position: relative;
+    border-radius: 10px;
+    overflow: hidden;
   }
-  .conclusion {
-    background: #bfa9a0;
+  #map {
+    width: 100%;
+    height: 100%;
+  }
+  .legend {
+    position: absolute;
+    bottom: 10px;
+    left: 10px;
+    background: rgba(255, 255, 255, 0.9);
+    padding: 0.5rem;
+    border-radius: 4px;
+    font-size: 0.8rem;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+  }
+  .legend h4 {
+    margin: 0 0 0.5rem 0;
+  }
+  .legend-item {
+    display: flex;
+    align-items: center;
+    margin-bottom: 0.3rem;
+  }
+  .legend-item:last-child {
+    margin-bottom: 0;
+  }
+  .color-box {
+    width: 20px;
+    height: 20px;
+    margin-right: 0.5rem;
+    border: 1px solid #ccc;
+  }
+  .color-box.default {
+    background-color: #ffccb3;
+  }
+  .color-box.highlighted {
+    background-color: #ff7f50;
+  }
+  .recenter-button {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    background: #d8a59c;
     color: white;
+    border: none;
+    padding: 0.5rem 1rem;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.9rem;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+    transition: background 0.2s ease;
+  }
+  .recenter-button:hover {
+    background: #bfa9a0;
+  }
+  .footer {
+    background: #bfa9a0;
     text-align: center;
-    padding: 3rem 1rem;
-  }
-  .conclusion h2 {
-    font-size: 1.8rem;
-    margin-bottom: 1rem;
-  }
-  .conclusion p {
-    max-width: 700px;
-    margin: 0 auto;
-    font-size: 1.1rem;
+    padding: 1rem;
+    color: white;
+    font-size: 0.9rem;
   }
 </style>
