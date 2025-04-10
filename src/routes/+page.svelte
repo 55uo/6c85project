@@ -37,9 +37,9 @@
     '2-person': ['fhh2', 'nfhh2'],
     '3-person': ['fhh3', 'nfhh3'],
     '4-person': ['fhh4', 'nfhh4'],
-    '5-person': ['fhh5p', 'nfhh5p'],
-    '6-person': [],
-    '7+ persons': []
+    '5-person': ['fhh5', 'nfhh5'],
+    '6-person': ['fhh6', 'nfhh6'],
+    '7+ persons': ['fhh7o', 'nfhh7o']
   };
 
   // Toggle functions for filter buttons.
