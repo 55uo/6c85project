@@ -229,7 +229,7 @@
     await new Promise(resolve => map.on('load', resolve));
 
     // Load GeoJSON data.
-    const zoning = await fetch('/housing_sf_other_w_census_reprojected.geojson')
+    const zoning = await fetch('housing_sf_other_w_census_reprojected.json')
                           .then(res => res.json());
 
     // Compute initial match property for each feature.
