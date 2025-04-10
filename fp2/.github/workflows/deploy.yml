@@ -17,18 +17,36 @@ jobs:
           node-version: 18
           cache: npm
 
+      - name: Check directory structure
+        run: |
+          echo "Current directory: $(pwd)"
+          echo "Directory contents:"
+          ls -la
+
       - name: Install dependencies
-        working-directory: fp2
-        run: npm install
+        run: |
+          if [ -d "fp2" ]; then
+            cd fp2
+            npm install
+          else
+            npm install
+          fi
 
       - name: Build
-        working-directory: fp2
-        run: npm run build
+        run: |
+          if [ -d "fp2" ]; then
+            cd fp2
+            npm run build
+          else
+            npm run build
+          fi
 
       - name: Upload Artifacts
         uses: actions/upload-pages-artifact@v1
         with:
-          path: fp2/build/
+          path: |
+            fp2/build/
+            build/
 
   deploy:
     needs: build_site
