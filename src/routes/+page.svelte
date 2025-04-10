@@ -220,7 +220,7 @@
     map.addControl(new mapboxgl.NavigationControl(), 'top-right');
 
     // Load CSV data
-    const rawCsv = await d3.csv('/housing_sf_other_w_census.csv');
+    const rawCsv = await d3.csv(import.meta.env.BASE_URL + '/housing_sf_other_w_census.csv');
     rawCsv.forEach(row => {
       csvData.set(row.fid, row);
     });
@@ -229,7 +229,7 @@
     await new Promise(resolve => map.on('load', resolve));
 
     // Load GeoJSON data.
-    const zoning = await fetch('/housing_sf_other_w_census_reprojected.json')
+    const zoning = await fetch(import.meta.env.BASE_URL + '/housing_sf_other_w_census_reprojected.json')
                           .then(res => res.json());
 
     // Compute initial match property for each feature.
