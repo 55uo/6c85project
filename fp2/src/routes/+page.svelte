@@ -139,23 +139,23 @@
         'fill-color': [
           'case',
           ['==', ['get', 'match'], 1],
-          '#ffed6f', // Highlighted fill when criteria are met.
+          '#c19770', // Highlighted fill when criteria are met.
           '#d6c7b3'  // Default fill when criteria not met.
         ],
         'fill-opacity': 0.7
       }
     });
 
-    // Add outline layer.
-    map.addLayer({
-      id: 'zoning-outline',
-      type: 'line',
-      source: 'zoning',
-      paint: {
-        'line-color': '#bfa9a0',
-        'line-width': 1
-      }
-    });
+    // // Add outline layer.
+    // map.addLayer({
+    //   id: 'zoning-outline',
+    //   type: 'line',
+    //   source: 'zoning',
+    //   paint: {
+    //     'line-color': '#bfa9a0',
+    //     'line-width': 1
+    //   }
+    // });
 
     // Setup hover popup.
     const popup = new mapboxgl.Popup({ closeButton: false, closeOnClick: false });
