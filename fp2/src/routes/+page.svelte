@@ -4,8 +4,7 @@
   import * as d3 from 'd3';
 
   let map;
-  const MAPBOX_TOKEN =
-    'pk.eyJ1Ijoic3N1byIsImEiOiJjbTk5Z2NnNWIwNDh5MnJwdjFwZGhnZmU2In0.DlLRt3C3qdBGprZR4SvRVQ';
+  const MAPBOX_TOKEN = 'pk.eyJ1Ijoic3N1byIsImEiOiJjbTk5Z2NnNWIwNDh5MnJwdjFwZGhnZmU2In0.DlLRt3C3qdBGprZR4SvRVQ';
 
   // Map configuration:
   let longitude = -71.0589;
@@ -13,14 +12,15 @@
   let zoom = 8.5;
 
   // Filter state stored as arrays.
-  // When empty, that category produces no filtering.
+  // The button logic remains unchanged.
+  // An empty array for a category means "no filtering" (i.e. all values are accepted).
   let selectedIncome = [];
   let selectedFamily = [];
 
   // CSV data will be stored in a Map keyed by fid.
   let csvData = new Map();
 
-  // Define income buckets – keys must match button labels.
+  // Define income buckets – keys must match the labels on the buttons.
   const incomeBuckets = {
     'Under $25K': ['incu10', 'inc1015', 'inc1520', 'inc2025'],
     '$25K - $50K': ['inc2530', 'inc3035', 'inc3540', 'inc4045', 'inc4550'],
@@ -30,7 +30,7 @@
     '$150K & above': ['inc150200', 'inc200more']
   };
 
-  // Define family fields – keys must match button labels.
+  // Define family fields – keys must match the labels.
   const familyFields = {
     '1-person': ['nfhh1'],
     '2-person': ['fhh2', 'nfhh2'],
@@ -41,7 +41,7 @@
     '7+ persons': []
   };
 
-  const MATCH_THRESHOLD = 0.05;
+  const MATCH_THRESHOLD = 0.05; // Not used in the new logic for highlighting; our match is binary
 
   // Toggle functions for filter buttons.
   function toggleIncome(bucket) {
@@ -69,24 +69,27 @@
     selectedFamily = [];
   }
 
-  // isMatch: returns true if the CSV row satisfies active filters.
-  // If both are empty, returns false so nothing is highlighted.
+  // Updated isMatch function:
+  // - If both selectedIncome and selectedFamily are empty, return true (highlight all areas).
+  // - Otherwise, for each active category, return true if the row has a positive value in at least one column.
+  // - Across categories, the result is the logical AND.
   function isMatch(row) {
-    // For debugging:
-    // console.log('Checking row for filters:', row);
+    // If no filters are active, highlight all.
     if (selectedIncome.length === 0 && selectedFamily.length === 0) {
-      return false;
+      return true;
     }
-    const incomeMatch =
-      selectedIncome.length === 0 ||
-      selectedIncome.some(bucket =>
-        incomeBuckets[bucket].reduce((sum, col) => sum + (+row[col] || 0), 0) > 0
+    let incomeMatch = true;
+    let familyMatch = true;
+    if (selectedIncome.length > 0) {
+      incomeMatch = selectedIncome.some(bucket =>
+        incomeBuckets[bucket].some(col => (+row[col] || 0) > 0)
       );
-    const familyMatch =
-      selectedFamily.length === 0 ||
-      selectedFamily.some(bucket =>
-        familyFields[bucket].reduce((sum, col) => sum + (+row[col] || 0), 0) > 0
+    }
+    if (selectedFamily.length > 0) {
+      familyMatch = selectedFamily.some(bucket =>
+        familyFields[bucket].some(col => (+row[col] || 0) > 0)
       );
+    }
     return incomeMatch && familyMatch;
   }
 
@@ -101,9 +104,11 @@
     });
     map.addControl(new mapboxgl.NavigationControl(), 'top-right');
 
-    // Load CSV data (ensure it's in your public folder).
+    // Load the CSV data into a Map (keyed by fid).
     const rawCsv = await d3.csv('/housing_sf_other_w_census.csv');
-    rawCsv.forEach(row => csvData.set(row.fid, row));
+    rawCsv.forEach(row => {
+      csvData.set(row.fid, row);
+    });
 
     // Wait for the map to load.
     await new Promise(resolve => map.on('load', resolve));
@@ -124,7 +129,8 @@
       data: zoning
     });
 
-    // Add fill layer with a conditional fill-color.
+    // Add fill layer with fill-color set conditionally on match.
+    // If match equals 1, use the highlight color; otherwise, use the default.
     map.addLayer({
       id: 'zoning-fill',
       type: 'fill',
@@ -133,14 +139,14 @@
         'fill-color': [
           'case',
           ['==', ['get', 'match'], 1],
-          '#ffed6f', // highlighted fill color
-          '#d6c7b3'  // default fill
+          '#ffed6f', // Highlighted fill when criteria are met.
+          '#d6c7b3'  // Default fill when criteria not met.
         ],
         'fill-opacity': 0.7
       }
     });
 
-    // Outline layer.
+    // Add outline layer.
     map.addLayer({
       id: 'zoning-outline',
       type: 'line',
@@ -167,24 +173,13 @@
     });
   });
 
-  // Reactive block: Update the GeoJSON source when filter selections change.
+  // Reactive block: Whenever selectedIncome or selectedFamily changes,
+  // update the match property for each feature and refresh the map source.
   $: {
-    // Add selectedIncome and selectedFamily to the dependency.
-    console.log('Filters changed: Income:', selectedIncome, 'Family:', selectedFamily);
-    if (
-      map &&
-      map.isStyleLoaded() &&
-      map.getSource('zoning') &&
-      csvData.size > 0
-    ) {
+    console.log('Filters changed - Income:', selectedIncome, 'Family:', selectedFamily);
+    if (map && map.isStyleLoaded() && map.getSource('zoning') && csvData.size > 0) {
       const source = map.getSource('zoning');
       const geojson = source._data;
-      // Log sample feature match value for debugging.
-      geojson.features.slice(0, 3).forEach(f => {
-        const row = csvData.get(String(f.properties.fid).trim());
-        const m = row ? isMatch(row) : false;
-        console.log(`fid ${f.properties.fid}: match = ${m}`);
-      });
       geojson.features.forEach(f => {
         const row = csvData.get(String(f.properties.fid).trim());
         f.properties.match = row ? (isMatch(row) ? 1 : 0) : 0;
@@ -282,7 +277,9 @@
 
         <!-- Reset Button -->
         <div class="filter-group">
-          <button on:click={resetFilters} class="reset-button">Reset All Filters</button>
+          <button on:click={resetFilters} class="reset-button">
+            Reset All Filters
+          </button>
         </div>
       </div>
     </div>
