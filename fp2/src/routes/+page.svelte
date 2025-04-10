@@ -18,14 +18,17 @@
   // CSV data will be stored in a Map keyed by fid.
   let csvData = new Map();
 
+  // Toggle to show top 10 matches.
+  let showTop10 = false;
+
   // Define income buckets – keys must match the labels on the buttons.
   const incomeBuckets = {
     'Under $25K': ['incu10', 'inc1015', 'inc1520', 'inc2025'],
     '$25K - $50K': ['inc2530', 'inc3035', 'inc3540', 'inc4045', 'inc4550'],
     '$50K - $75K': ['inc5060', 'inc6075'],
-    '$75K - $100K': ['inc7585', 'inc85100'],
-    '$100K - $150K': ['inc100125', 'inc125150'],
-    '$150K & above': ['inc150200', 'inc200more']
+    '$75K - $100K': ['i7599'],
+    '$100K - $150K': ['i100125', 'i125150'],
+    '$150K & above': ['i150200', 'in200o']
   };
 
   // Define family fields – keys must match the labels.
@@ -65,24 +68,134 @@
     selectedFamily = [];
   }
 
+  function toggleTop10View() {
+    showTop10 = !showTop10;
+  }
+
+
   // Updated isMatch function:
+  // function isMatch(row) {
+  //   if (selectedIncome.length === 0 && selectedFamily.length === 0) {
+  //     return true;
+  //   }
+  //   let incomeMatch = true;
+  //   let familyMatch = true;
+  //   if (selectedIncome.length > 0) {
+  //     incomeMatch = selectedIncome.some(bucket =>
+  //       incomeBuckets[bucket].some(col => (+row[col] || 0) > 0)
+  //     );
+  //   }
+  //   if (selectedFamily.length > 0) {
+  //     familyMatch = selectedFamily.some(bucket =>
+  //       familyFields[bucket].some(col => (+row[col] || 0) > 0)
+  //     );
+  //   }
+  //   return incomeMatch && familyMatch;
+  // }
+
+  // Example thresholds for normalized scores.
+  // For instance, if the average value is greater than or equal to 0.5, consider it a match.
+  const incomeThreshold = 0.5;
+  const familyThreshold = 0.5;
+
+  /**
+   * Enhanced filtering function with normalization:
+   * - For each category, sum the values from all columns in the selected buckets.
+   * - Divide by the total number of values (i.e., the number of columns across all selected buckets) to get an average.
+   * - The row is a match if the normalized (average) score in each active category exceeds the threshold.
+   */
   function isMatch(row) {
+    // If no filters active at all, highlight all.
     if (selectedIncome.length === 0 && selectedFamily.length === 0) {
       return true;
     }
-    let incomeMatch = true;
-    let familyMatch = true;
+
+    let incomeSum = 0;
+    let incomeCount = 0;
+    let familySum = 0;
+    let familyCount = 0;
+
+    // Compute normalized income score if any income filters are selected.
     if (selectedIncome.length > 0) {
-      incomeMatch = selectedIncome.some(bucket =>
-        incomeBuckets[bucket].some(col => (+row[col] || 0) > 0)
-      );
+      selectedIncome.forEach(bucket => {
+        incomeBuckets[bucket].forEach(col => {
+          incomeSum += (+row[col] || 0);
+          incomeCount++;
+        });
+      });
     }
+    // Compute normalized family score if any family filters are selected.
     if (selectedFamily.length > 0) {
-      familyMatch = selectedFamily.some(bucket =>
-        familyFields[bucket].some(col => (+row[col] || 0) > 0)
-      );
+      selectedFamily.forEach(bucket => {
+        familyFields[bucket].forEach(col => {
+          familySum += (+row[col] || 0);
+          familyCount++;
+        });
+      });
     }
+
+    // Calculate average (normalized) score for each category.
+    const incomeScore = incomeCount > 0 ? incomeSum / incomeCount : 0;
+    const familyScore = familyCount > 0 ? familySum / familyCount : 0;
+
+    // Determine if each category meets its threshold.
+    const incomeMatch = selectedIncome.length > 0 ? (incomeScore >= incomeThreshold) : true;
+    const familyMatch = selectedFamily.length > 0 ? (familyScore >= familyThreshold) : true;
+
     return incomeMatch && familyMatch;
+  }
+
+  // Function to compute a raw score for a municipality.
+  // Here we simply sum all the income and family columns across all buckets.
+  // (You can modify this function to include weights or normalization as needed.)
+  function computeScore(row) {
+    let score = 0;
+    Object.values(incomeBuckets).forEach(bucket => {
+      bucket.forEach(col => {
+        score += (+row[col] || 0);
+      });
+    });
+    Object.values(familyFields).forEach(bucket => {
+      bucket.forEach(col => {
+        score += (+row[col] || 0);
+      });
+    });
+    return score;
+  }
+
+   // Function to update the map data using the normal filtering logic.
+   function updateMap() {
+    if (map && map.isStyleLoaded() && map.getSource('zoning') && csvData.size > 0) {
+      const source = map.getSource('zoning');
+      const geojson = source._data;
+      geojson.features.forEach(f => {
+        const row = csvData.get(String(f.properties.fid).trim());
+        f.properties.match = row ? (isMatch(row) ? 1 : 0) : 0;
+      });
+      source.setData(geojson);
+    }
+  }
+
+  // Function to update the map data to highlight only the top 10 scored municipalities.
+  function updateTop10() {
+    if (map && map.isStyleLoaded() && map.getSource('zoning') && csvData.size > 0) {
+      const source = map.getSource('zoning');
+      const geojson = source._data;
+      // Compute score for each feature.
+      geojson.features.forEach(f => {
+        const row = csvData.get(String(f.properties.fid).trim());
+        f.properties.score = row ? computeScore(row) : 0;
+      });
+      // Sort features descending by score.
+      const sorted = [...geojson.features].sort((a, b) => b.properties.score - a.properties.score);
+      // Get the top 10 fids.
+      const top10Fids = new Set(sorted.slice(0, 10).map(f => f.properties.fid));
+      // Update match: only features in top10 get highlighted.
+      geojson.features.forEach(f => {
+        f.properties.match = top10Fids.has(f.properties.fid) ? 1 : 0;
+      });
+      source.setData(geojson);
+    }
   }
 
   // Function to recenter the map.
@@ -167,15 +280,14 @@
   $: {
     console.log('Filters changed - Income:', selectedIncome, 'Family:', selectedFamily);
     if (map && map.isStyleLoaded() && map.getSource('zoning') && csvData.size > 0) {
-      const source = map.getSource('zoning');
-      const geojson = source._data;
-      geojson.features.forEach(f => {
-        const row = csvData.get(String(f.properties.fid).trim());
-        f.properties.match = row ? (isMatch(row) ? 1 : 0) : 0;
-      });
-      source.setData(geojson);
+      if (showTop10) {
+        updateTop10();
+      } else {
+        updateMap();
+      }
     }
   }
+
 </script>
 
 <div class="page">
@@ -192,6 +304,10 @@
       <!-- Sidebar containing Filters -->
       <div class="sidebar">
         <div class="filters-container">
+          <!-- Top 10 toggle button -->
+          <button class="top10-button" on:click={toggleTop10View}>
+            {showTop10 ? "Show All" : "Show Top 10"}
+          </button>
           <!-- Income Level Filter Group -->
           <div class="filter-group">
             <h4>Income Level</h4>
