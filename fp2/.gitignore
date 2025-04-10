@@ -11,3 +11,4 @@ vite.config.ts.timestamp-*
 static/housing_sf_other_w_census.geojson
 static/housing_sf_other_w_census.csv
 static/Metadata_housing_sf_other_w_census.txt
+static/housing_sf_other_w_census_reprojected.geojson

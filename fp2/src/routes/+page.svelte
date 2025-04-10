@@ -6,165 +6,85 @@
   let map;
   const MAPBOX_TOKEN = 'pk.eyJ1Ijoic3N1byIsImEiOiJjbTk5Z2NnNWIwNDh5MnJwdjFwZGhnZmU2In0.DlLRt3C3qdBGprZR4SvRVQ';
 
-  let incomeRange = 'All Income Levels';
-  let familySize = 'All Family Sizes';
-  let csvData = new Map();
+  let longitude = -71.0589;
+  let latitude = 42.3601;
+  let zoom = 8.5;
 
-  const incomeBuckets = {
-    'Under $25K': ['incu10', 'inc1015', 'inc1520', 'inc2025'],
-    '$25K - $50K': ['inc2530', 'inc3035', 'inc3540', 'inc4045', 'inc4550'],
-    '$50K - $75K': ['inc5060', 'inc6075'],
-    '$75K - $100K': ['inc7585', 'inc85100'],
-    '$100K - $150K': ['inc100125', 'inc125150'],
-    '$150K & above': ['inc150200', 'inc200more']
-  };
-
-  const familyFields = {
-    '1-person': ['nfhh1'],
-    '2-person': ['fhh2', 'nfhh2'],
-    '3-person': ['fhh3', 'nfhh3'],
-    '4-person': ['fhh4', 'nfhh4'],
-    '5-person': ['fhh5p', 'nfhh5p'],
-    '6-person': [],
-    '7+ persons': []
-  };
-
-  function getMatchScore(row) {
-    const allIncomeKeys = Object.values(incomeBuckets).flat();
-    const allFamilyKeys = Object.values(familyFields).flat();
-    const totalKeys = [...allIncomeKeys, ...allFamilyKeys];
-    const totalScore = totalKeys.reduce((sum, col) => sum + (+row[col] || 0), 0);
-
-    let incomeScore = 0;
-    let familyScore = 0;
-
-    if (incomeRange !== 'All Income Levels') {
-      incomeScore = incomeBuckets[incomeRange].reduce((sum, col) => sum + (+row[col] || 0), 0);
-    }
-
-    if (familySize !== 'All Family Sizes') {
-      familyScore = familyFields[familySize].reduce((sum, col) => sum + (+row[col] || 0), 0);
-    }
-
-    const rawScore = incomeScore + familyScore;
-    return totalScore > 0 ? rawScore / totalScore : 0;
-  };
-
-  let filteredFids = [];
-
-  function getFilteredFids() {
-    filteredFids = [];
-
-    for (let [fid, row] of csvData.entries()) {
-      const score = getMatchScore(row);
-      if (score > 0.05) {
-        filteredFids.push(fid); // or you could push row.muni instead
-      }
-    }
-  };
-
-  onMount(async () => {
+  async function initMap() {
+    // Initialize the map
     mapboxgl.accessToken = MAPBOX_TOKEN;
-
-    const rawCsv = await d3.csv('/housing_sf_other_w_census.csv');
-    rawCsv.forEach(row => {
-      csvData.set(row.fid, row);
-    });
-
     map = new mapboxgl.Map({
       container: 'map',
       style: 'mapbox://styles/mapbox/light-v11',
-      center: [-71.0589, 42.3601],
-      zoom: 9
+      center: [longitude, latitude],
+      zoom: zoom
     });
 
-    map.addControl(new mapboxgl.NavigationControl(), 'top-right');
+    // Wait for the map to load
+    await new Promise(resolve => map.on("load", resolve));
 
-    map.on('load', async () => {
-      const geojson = await fetch('/housing_sf_other_w_census.geojson').then(res => res.json());
-
-      geojson.features.forEach(f => {
-        const row = csvData.get(f.properties.fid);
-        f.properties.matchScore = row ? getMatchScore(row) : 0;
-      });
-
-      map.addSource('zoning', {
-        type: 'geojson',
-        data: geojson
-      });
-
-      map.addLayer({
-        id: 'zoning-fill',
-        type: 'fill',
-        source: 'zoning',
-        paint: {
-          'fill-color': [
-            'interpolate', ['linear'], ['get', 'matchScore'],
-            0, '#eeeeee',
-            0.05, '#c7e9b4',
-            0.1, '#7fcdbb',
-            0.2, '#1d91c0',
-            0.4, '#0c2c84'
-          ],
-          'fill-opacity': 0.7
-        }
-      });
-
-      map.addLayer({
-        id: 'zoning-outline',
-        type: 'line',
-        source: 'zoning',
-        paint: {
-          'line-color': '#ffffff',
-          'line-width': 1
-        }
-      });
-
-      map.on('mouseenter', 'zoning-fill', (e) => {
-        map.getCanvas().style.cursor = 'pointer';
-        const muni = e.features[0].properties.muni;
-        const percent = e.features[0].properties['%_single_family'];
-        new mapboxgl.Popup()
-          .setLngLat(e.lngLat)
-          .setHTML(`<strong>${muni}</strong><br>${percent}% single-family`)
-          .addTo(map);
-      });
-
-      map.on('mouseleave', 'zoning-fill', () => {
-        map.getCanvas().style.cursor = '';
-      });
+    // Load the zoning geodata
+    const zoning = await fetch('/housing_sf_other_w_census_reprojected.geojson').then(res => res.json());
+    map.addSource('zoning', {
+      type: 'geojson',
+      data: zoning
     });
-  });
 
-  $: {
-    if (
-      map &&
-      map.isStyleLoaded() &&
-      map.getSource('zoning') &&
-      csvData.size > 0 &&
-      incomeRange &&
-      familySize
-    ) {
-      console.log('🔁 Updating map based on filters...');
+    // Color the zoning by municipality
+    map.addLayer({
+      id: 'zoning-fill',
+      type: 'fill',
+      source: 'zoning',
+      paint: {
+        'fill-color': '#d6c7b3',  // soft warm tan
+        'fill-opacity': 0.5
+      }
+    });
 
-      const source = map.getSource('zoning');
-      const geojson = source._data;
+    // Add the outline layer
+    map.addLayer({
+      id: 'zoning-outline',
+      type: 'line',
+      source: 'zoning',
+      paint: {
+        'line-color': '#bfa9a0',  // muted warm brown
+        'line-width': 1
+      }
+    });
 
-      geojson.features.slice(0, 3).forEach((f) => {
-        const row = csvData.get(String(f.properties.fid).trim());
-        const score = row ? getMatchScore(row) : 0;
-        console.log(`fid ${f.properties.fid} → matchScore: ${score}`);
-      });
+    // hover effect
+    const popup = new mapboxgl.Popup({
+      closeButton: false,
+      closeOnClick: false
+    });
 
-      source.setData(geojson);
-      getFilteredFids(); // updates your textbox
-    }
+    map.on('mouseenter', 'zoning-fill', (e) => {
+      map.getCanvas().style.cursor = 'pointer';
+
+      const feature = e.features[0];
+      const muni = feature.properties.muni;
+
+      popup
+        .setLngLat(e.lngLat)
+        .setHTML(`<strong>${muni}</strong>`)
+        .addTo(map);
+    });
+
+    map.on('mouseleave', 'zoning-fill', () => {
+      map.getCanvas().style.cursor = '';
+      popup.remove();
+    });
+
   }
 
+  onMount(() => {
+    initMap();
+    map.addControl(new mapboxgl.NavigationControl(), 'top-right');
+  });
 
 </script>
 
-<!-- Page Layout (same as before) -->
+<!-- Page Layout -->
 <div class="page">
   <section class="intro">
     <h1>Explore Housing Access in Greater Boston</h1>
@@ -180,65 +100,37 @@
         <div id="map"></div>
       </div>
 
-      <div class="filter-box">
-        <h2>Map Filters</h2>
-        <label>
-          Income Level
-          <select bind:value={incomeRange}>
-            <option>All Income Levels</option>
-            <option>Under $25K</option>
-            <option>$25K - $50K</option>
-            <option>$50K - $75K</option>
-            <option>$75K - $100K</option>
-            <option>$100K - $150K</option>
-            <option>$150K & above</option>
-          </select>          
-        </label>
+      <div class="filters-container">
+        <!-- Income Level -->
+        <div class="filter-group">
+          <h4>Income Level</h4>
+          <button>Under $25K</button>
+          <button>$25K - $50K</button>
+          <button>$50K - $75K</button>
+          <button>$75K - $100K</button>
+          <button>$100K - $150K</button>
+          <button>$150K & above</button>
+        </div>
 
-        <label>
-          Family Size
-          <select bind:value={familySize}>
-            <option>All Family Sizes</option>
-            <option>1-person</option>
-            <option>2-person</option>
-            <option>3-person</option>
-            <option>4-person</option>
-            <option>5-person</option>
-            <option>6-person</option>
-            <option>7+ persons</option>
-          </select>          
-        </label>
+        <!-- Family Size -->
+        <div class="filter-group">
+          <h4>Family Size</h4>
+          <button>1-person</button>
+          <button>2-person</button>
+          <button>3-person</button>
+          <button>4-person</button>
+          <button>5-person</button>
+          <button>6-person</button>
+          <button>7+ persons</button>
+        </div>
       </div>
     </div>
   </section>
 
   <section class="filtered-output">
     <h3>Filtered Municipalities</h3>
-    {#if filteredFids.length > 0}
-      <p>{filteredFids.length} matched:</p>
-      <textarea readonly rows="6">{filteredFids.join(', ')}</textarea>
-    {:else}
-      <p>No matches found for this selection.</p>
-    {/if}
+    <p>Select income levels and family sizes to see matching municipalities.</p>
   </section>  
-
-  <section class="stats">
-    <div class="stat">
-      <p>🏘️ Single-Family Zoning</p>
-      <h3>65%</h3>
-      <small>of residential land</small>
-    </div>
-    <div class="stat">
-      <p>🏢 Multi-Family Zoning</p>
-      <h3>35%</h3>
-      <small>of residential land</small>
-    </div>
-    <div class="stat">
-      <p>👥 Population Density</p>
-      <h3>13,841</h3>
-      <small>people per sq. mile</small>
-    </div>
-  </section>
 
   <section class="conclusion">
     <h2>Why Zoning Reform Matters</h2>
@@ -288,15 +180,26 @@
     display: flex;
     flex-wrap: wrap;
     gap: 2rem;
-    justify-content: center;
+    justify-content: flex-start;
+    align-items: flex-start;
+    max-width: 1200px;
+    margin: 0 auto;
   }
 
   .map-container {
     background: #d6c7b3;
-    width: 900px;
+    width: 100%;
+    max-width: 800px;
     height: 600px;
     border-radius: 10px;
     overflow: hidden;
+  }
+
+  .filters-container {
+    display: flex;
+    flex-direction: column;
+    gap: 2rem;
+    min-width: 250px;
   }
 
   #map {
@@ -304,52 +207,57 @@
     height: 100%;
   }
 
-  .filter-box {
-    background: white;
-    padding: 1rem;
-    border: 1px solid #ccc;
-    border-radius: 8px;
-    width: 260px;
+  .filter-group {
+    margin-bottom: 1rem;
+    width: 100%;
   }
 
-  .filter-box h2 {
-    font-size: 1.2rem;
-    margin-bottom: 1rem;
-  }
-
-  .filter-box label {
-    display: block;
-    margin-bottom: 1rem;
+  .filter-group h4 {
     font-size: 0.9rem;
+    text-transform: uppercase;
+    color: #555;
+    margin-bottom: 0.5rem;
   }
 
-  .stats {
-    display: flex;
-    justify-content: center;
-    gap: 2rem;
-    padding: 3rem 1rem;
+  .filter-group button {
+    display: block;
+    width: 100%;
+    text-align: left;
+    background: #e0e0e0;
+    color: #333;
+    border: none;
+    padding: 0.6rem 0.8rem;
+    margin: 0.25rem 0;
+    border-radius: 4px;
+    font-family: monospace;
+    cursor: pointer;
+    transition: all 0.2s ease;
   }
 
-  .stat {
-    background: #eac7b1;
-    padding: 1rem;
-    border-radius: 8px;
-    width: 200px;
-    text-align: center;
+  .filter-group button:hover {
+    background: #ccc;
+    transform: translateY(-2px);
   }
 
-  .stat:nth-child(2) {
-    background: #f1e1c5;
-  }
-
-  .stat:nth-child(3) {
+  .filter-group button:active {
     background: #d8a59c;
     color: white;
   }
 
-  .stat h3 {
-    font-size: 2rem;
-    margin: 0.5rem 0;
+  @media (max-width: 768px) {
+    .map-and-filters {
+      flex-direction: column;
+      align-items: center;
+    }
+
+    .map-container {
+      height: 400px;
+    }
+
+    .filters-container {
+      width: 100%;
+      max-width: 800px;
+    }
   }
 
   .conclusion {
@@ -379,13 +287,4 @@
     width: 90%;
     max-width: 900px;
   }
-
-  .filtered-output textarea {
-    width: 100%;
-    padding: 0.5rem;
-    border-radius: 6px;
-    border: 1px solid #ccc;
-    font-size: 0.9rem;
-  }
-
 </style>
