@@ -6,14 +6,16 @@
   let map;
   const MAPBOX_TOKEN = 'pk.eyJ1Ijoic3N1byIsImEiOiJjbTk5Z2NnNWIwNDh5MnJwdjFwZGhnZmU2In0.DlLRt3C3qdBGprZR4SvRVQ';
 
+  let hoveredId = null;
+
   // Map configuration:
   let longitude = -71.0589;
   let latitude = 42.3601;
   let zoom = 9; // Default zoom adjusted to 8
 
   // Filter state stored as arrays.
-  let selectedIncome = [];
-  let selectedFamily = [];
+  let selectedIncome = 'All Income Levels';
+  let selectedFamily = 'All Family Sizes';
 
   // CSV data will be stored in a Map keyed by fid.
   let csvData = new Map();
@@ -43,29 +45,36 @@
   };
 
   // Toggle functions for filter buttons.
-  function toggleIncome(bucket) {
-    if (bucket === 'All Income Levels') {
-      selectedIncome = [];
-    } else if (selectedIncome.includes(bucket)) {
-      selectedIncome = selectedIncome.filter(b => b !== bucket);
-    } else {
-      selectedIncome = [...selectedIncome, bucket];
-    }
-  }
 
-  function toggleFamily(bucket) {
-    if (bucket === 'All Family Sizes') {
-      selectedFamily = [];
-    } else if (selectedFamily.includes(bucket)) {
-      selectedFamily = selectedFamily.filter(b => b !== bucket);
-    } else {
-      selectedFamily = [...selectedFamily, bucket];
-    }
+  // function toggleIncome(bucket) {
+  //   if (bucket === 'All Income Levels') {
+  //     selectedIncome = [];
+  //   } else if (selectedIncome.includes(bucket)) {
+  //     selectedIncome = selectedIncome.filter(b => b !== bucket);
+  //   } else {
+  //     selectedIncome = [...selectedIncome, bucket];
+  //   }
+  // }
+  function selectIncome(bucket) {
+    selectedIncome = bucket;
+  };
+
+  // function toggleFamily(bucket) {
+  //   if (bucket === 'All Family Sizes') {
+  //     selectedFamily = [];
+  //   } else if (selectedFamily.includes(bucket)) {
+  //     selectedFamily = selectedFamily.filter(b => b !== bucket);
+  //   } else {
+  //     selectedFamily = [...selectedFamily, bucket];
+  //   }
+  // }
+  function selectFamily(bucket) {
+    selectedFamily = bucket;
   }
 
   function resetFilters() {
-    selectedIncome = [];
-    selectedFamily = [];
+    selectedIncome = 'All Income Levels';
+    selectedFamily = 'All Family Sizes';
   }
 
   function toggleTop10View() {
@@ -104,46 +113,77 @@
    * - Divide by the total number of values (i.e., the number of columns across all selected buckets) to get an average.
    * - The row is a match if the normalized (average) score in each active category exceeds the threshold.
    */
+  // function isMatch(row) {
+  //   // If no filters active at all, highlight all.
+  //   if (selectedIncome.length === 0 && selectedFamily.length === 0) {
+  //     return true;
+  //   }
+
+  //   let incomeSum = 0;
+  //   let incomeCount = 0;
+  //   let familySum = 0;
+  //   let familyCount = 0;
+
+  //   // Compute normalized income score if any income filters are selected.
+  //   if (selectedIncome.length > 0) {
+  //     selectedIncome.forEach(bucket => {
+  //       incomeBuckets[bucket].forEach(col => {
+  //         incomeSum += (+row[col] || 0);
+  //         incomeCount++;
+  //       });
+  //     });
+  //   }
+  //   // Compute normalized family score if any family filters are selected.
+  //   if (selectedFamily.length > 0) {
+  //     selectedFamily.forEach(bucket => {
+  //       familyFields[bucket].forEach(col => {
+  //         familySum += (+row[col] || 0);
+  //         familyCount++;
+  //       });
+  //     });
+  //   }
+
+  //   // Calculate average (normalized) score for each category.
+  //   const incomeScore = incomeCount > 0 ? incomeSum / incomeCount : 0;
+  //   const familyScore = familyCount > 0 ? familySum / familyCount : 0;
+
+  //   // Determine if each category meets its threshold.
+  //   const incomeMatch = selectedIncome.length > 0 ? (incomeScore >= incomeThreshold) : true;
+  //   const familyMatch = selectedFamily.length > 0 ? (familyScore >= familyThreshold) : true;
+
+  //   return incomeMatch && familyMatch;
+  // }
+
   function isMatch(row) {
-    // If no filters active at all, highlight all.
-    if (selectedIncome.length === 0 && selectedFamily.length === 0) {
+    // 1) If neither filter is active, highlight all.
+    const noIncomeFilter = selectedIncome === 'All Income Levels';
+    const noFamilyFilter = selectedFamily === 'All Family Sizes';
+    if (noIncomeFilter && noFamilyFilter) {
       return true;
     }
 
-    let incomeSum = 0;
-    let incomeCount = 0;
-    let familySum = 0;
-    let familyCount = 0;
-
-    // Compute normalized income score if any income filters are selected.
-    if (selectedIncome.length > 0) {
-      selectedIncome.forEach(bucket => {
-        incomeBuckets[bucket].forEach(col => {
-          incomeSum += (+row[col] || 0);
-          incomeCount++;
-        });
-      });
-    }
-    // Compute normalized family score if any family filters are selected.
-    if (selectedFamily.length > 0) {
-      selectedFamily.forEach(bucket => {
-        familyFields[bucket].forEach(col => {
-          familySum += (+row[col] || 0);
-          familyCount++;
-        });
-      });
+    // 2) Check income bracket against threshold
+    let incomeMatch = true;
+    if (!noIncomeFilter) {
+      const cols = incomeBuckets[selectedIncome]; // e.g. ['inc2530', ...]
+      const sum  = cols.reduce((acc, col) => acc + (+row[col] || 0), 0);
+      const avg  = sum / cols.length;
+      incomeMatch = avg >= incomeThreshold;
     }
 
-    // Calculate average (normalized) score for each category.
-    const incomeScore = incomeCount > 0 ? incomeSum / incomeCount : 0;
-    const familyScore = familyCount > 0 ? familySum / familyCount : 0;
+    // 3) Check family size bracket against threshold
+    let familyMatch = true;
+    if (!noFamilyFilter) {
+      const cols = familyFields[selectedFamily]; // e.g. ['fhh3','nfhh3']
+      const sum  = cols.reduce((acc, col) => acc + (+row[col] || 0), 0);
+      const avg  = sum / cols.length;
+      familyMatch = avg >= familyThreshold;
+    }
 
-    // Determine if each category meets its threshold.
-    const incomeMatch = selectedIncome.length > 0 ? (incomeScore >= incomeThreshold) : true;
-    const familyMatch = selectedFamily.length > 0 ? (familyScore >= familyThreshold) : true;
-
+    // 4) Only rows passing both filters are matches
     return incomeMatch && familyMatch;
   }
+
 
   // Function to compute a raw score for a municipality.
   // Here we simply sum all the income and family columns across all buckets.
@@ -220,7 +260,8 @@
     map.addControl(new mapboxgl.NavigationControl(), 'top-right');
 
     // Load CSV data
-    const rawCsv = await d3.csv(import.meta.env.BASE_URL + '/housing_sf_other_w_census.csv');
+    // const rawCsv = await d3.csv(import.meta.env.BASE_URL + '/housing_sf_other_w_census.csv');
+    const rawCsv = await d3.csv('/housing_sf_other_w_census.csv');
     rawCsv.forEach(row => {
       csvData.set(row.fid, row);
     });
@@ -229,8 +270,8 @@
     await new Promise(resolve => map.on('load', resolve));
 
     // Load GeoJSON data.
-    const zoning = await fetch(import.meta.env.BASE_URL + '/housing_sf_other_w_census_reprojected.json')
-                          .then(res => res.json());
+    // const zoning = await fetch(import.meta.env.BASE_URL + '/housing_sf_other_w_census_reprojected.json').then(res => res.json());
+    const zoning = await fetch('/housing_sf_other_w_census_reprojected.json').then(res => res.json());
 
     // Compute initial match property for each feature.
     zoning.features.forEach(f => {
@@ -260,6 +301,18 @@
       }
     });
 
+    // HOVER outline layer
+    map.addLayer({
+      id: 'zoning-hover',
+      type: 'line',
+      source: 'zoning',
+      paint: {
+        'line-color': '#333',
+        'line-width': 3
+      },
+      filter: ['==', ['feature-state', 'hover'], true]
+    });
+
     // Setup hover popup.
     const popup = new mapboxgl.Popup({ closeButton: false, closeOnClick: false });
     map.on('mouseenter', 'zoning-fill', (e) => {
@@ -274,6 +327,22 @@
       map.getCanvas().style.cursor = '';
       popup.remove();
     });
+
+    // Highlight hovered feature
+    map.on('mousemove', 'zoning-fill', (e) => {
+      if (hoveredId !== null) {
+        map.setFeatureState({ source: 'zoning', id: hoveredId }, { hover: false });
+      }
+      hoveredId = e.features[0].id;
+      map.setFeatureState({ source: 'zoning', id: hoveredId }, { hover: true });
+    });
+    map.on('mouseleave', 'zoning-fill', () => {
+      if (hoveredId !== null) {
+        map.setFeatureState({ source: 'zoning', id: hoveredId }, { hover: false });
+      }
+      hoveredId = null;
+    });
+    
   });
 
   // Reactive block to update the map when filters change.
@@ -311,32 +380,33 @@
           <!-- Income Level Filter Group -->
           <div class="filter-group">
             <h4>Income Level</h4>
-            <button on:click={() => toggleIncome('All Income Levels')}
-                    class:active={selectedIncome.length === 0}>
+            <p class="hint">Choose the bracket that matches your annual household income.</p>
+            <button on:click={() => selectIncome('All Income Levels')}
+                    class:active={selectedIncome === 'All Income Levels'}>
               All Income Levels
             </button>
-            <button on:click={() => toggleIncome('Under $25K')}
-                    class:active={selectedIncome.includes('Under $25K')}>
+            <button on:click={() => selectIncome('Under $25K')}
+                    class:active={selectedIncome === 'Under $25K'}>
               Under $25K
             </button>
-            <button on:click={() => toggleIncome('$25K - $50K')}
-                    class:active={selectedIncome.includes('$25K - $50K')}>
+            <button on:click={() => selectIncome('$25K - $50K')}
+                    class:active={selectedIncome === '$25K - $50K'}>
               $25K - $50K
             </button>
-            <button on:click={() => toggleIncome('$50K - $75K')}
-                    class:active={selectedIncome.includes('$50K - $75K')}>
+            <button on:click={() => selectIncome('$50K - $75K')}
+                    class:active={selectedIncome === '$50K - $75K'}>
               $50K - $75K
             </button>
-            <button on:click={() => toggleIncome('$75K - $100K')}
-                    class:active={selectedIncome.includes('$75K - $100K')}>
+            <button on:click={() => selectIncome('$75K - $100K')}
+                    class:active={selectedIncome === '$75K - $100K'}>
               $75K - $100K
             </button>
-            <button on:click={() => toggleIncome('$100K - $150K')}
-                    class:active={selectedIncome.includes('$100K - $150K')}>
+            <button on:click={() => selectIncome('$100K - $150K')}
+                    class:active={selectedIncome === '$100K - $150K'}>
               $100K - $150K
             </button>
-            <button on:click={() => toggleIncome('$150K & above')}
-                    class:active={selectedIncome.includes('$150K & above')}>
+            <button on:click={() => selectIncome('$150K & above')}
+                    class:active={selectedIncome === '$150K & above'}>
               $150K & above
             </button>
           </div>
@@ -344,36 +414,37 @@
           <!-- Family Size Filter Group -->
           <div class="filter-group">
             <h4>Family Size</h4>
-            <button on:click={() => toggleFamily('All Family Sizes')}
-                    class:active={selectedFamily.length === 0}>
+            <p class="hint">Choose the bracket that matches your family size.</p>
+            <button on:click={() => selectFamily('All Family Sizes')}
+                    class:active={selectedFamily === 'All Family Sizes'}>
               All Family Sizes
             </button>
-            <button on:click={() => toggleFamily('1-person')}
-                    class:active={selectedFamily.includes('1-person')}>
+            <button on:click={() => selectFamily('1-person')}
+                    class:active={selectedFamily === '1-person'}>
               1-person
             </button>
-            <button on:click={() => toggleFamily('2-person')}
-                    class:active={selectedFamily.includes('2-person')}>
+            <button on:click={() => selectFamily('2-person')}
+                    class:active={selectedFamily === '2-person'}>
               2-person
             </button>
-            <button on:click={() => toggleFamily('3-person')}
-                    class:active={selectedFamily.includes('3-person')}>
+            <button on:click={() => selectFamily('3-person')}
+                    class:active={selectedFamily === '3-person'}>
               3-person
             </button>
-            <button on:click={() => toggleFamily('4-person')}
-                    class:active={selectedFamily.includes('4-person')}>
+            <button on:click={() => selectFamily('4-person')}
+                    class:active={selectedFamily === '4-person'}>
               4-person
             </button>
-            <button on:click={() => toggleFamily('5-person')}
-                    class:active={selectedFamily.includes('5-person')}>
+            <button on:click={() => selectFamily('5-person')}
+                    class:active={selectedFamily === '5-person'}>
               5-person
             </button>
-            <button on:click={() => toggleFamily('6-person')}
-                    class:active={selectedFamily.includes('6-person')}>
+            <button on:click={() => selectFamily('6-person')}
+                    class:active={selectedFamily === '6-person'}>
               6-person
             </button>
-            <button on:click={() => toggleFamily('7+ persons')}
-                    class:active={selectedFamily.includes('7+ persons')}>
+            <button on:click={() => selectFamily('7+ persons')}
+                    class:active={selectedFamily === '7+ persons'}>
               7+ persons
             </button>
           </div>
@@ -395,11 +466,11 @@
           <h4>Legend</h4>
           <div class="legend-item">
             <span class="color-box default"></span>
-            <span>Default</span>
+            <span>Not Suitable Neighborhood</span>
           </div>
           <div class="legend-item">
             <span class="color-box highlighted"></span>
-            <span>Filtered</span>
+            <span>Recommended Neighborhood</span>
           </div>
         </div>
       </div>
@@ -576,4 +647,6 @@
     color: white;
     font-size: 0.9rem;
   }
+  .hint { font-size: 0.75rem; color: #666; margin-bottom: 0.5rem; }
+
 </style>
