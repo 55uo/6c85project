@@ -187,16 +187,21 @@
         const fid = f.properties.fid;
         const csvRow = singleFamilyCsvData.get(parseInt(fid));
 
-        let value = 0;
+        let normalizedValue = 0;
+        let rawCounts = 0;
 
-        if (usePercentage) {
-          const percentages = incomeCache.get(fid) || [0, 0, 0, 0, 0, 0];
-          value = percentages[selectedIncomeLevel] || 0;
-        } else {
-          const rawCounts = incomeLevelGroups[selectedIncomeLevel].reduce((sum, col) => {
-            return sum + parseFloat(csvRow?.[col] || 0);
+        if (csvRow) {
+          const group = incomeLevelGroups[selectedIncomeLevel];
+          rawCounts = group.reduce((sum, col) => {
+            return sum + parseFloat(csvRow[col] || 0);
           }, 0);
-          value = (maxIncomeValue > 0) ? (rawCounts / maxIncomeValue) : 0;
+
+          if (usePercentage) {
+            const percentages = incomeCache.get(fid) || [0, 0, 0, 0, 0, 0];
+            normalizedValue = percentages[selectedIncomeLevel] || 0;
+          } else {
+            normalizedValue = (maxIncomeValue > 0) ? (rawCounts / maxIncomeValue) : 0;
+          }
         }
 
         return {
@@ -204,7 +209,8 @@
           id: fid,
           properties: {
             ...f.properties,
-            income_value: value   // ← final property is "income_value"
+            income_value: normalizedValue, // for painting
+            income_raw: rawCounts          // for hover info
           }
         };
       })
@@ -285,7 +291,7 @@
           if (usePercentage) {
             displayValue = (props.income_value * 100).toFixed(1) + '%';
           } else {
-            displayValue = Math.round(props.income_value).toLocaleString(); // Format raw count nicely
+            displayValue = Math.round(props.income_raw || 0).toLocaleString(); // Format raw count nicely
           }
 
           infoBox.innerHTML = `
@@ -334,34 +340,35 @@
     }
 
     const updatedGeojson = {
-    type: 'FeatureCollection',
-    features: singleFamilyGeo.features.map(f => {
-      const fid = f.properties.fid;
-      const csvRow = singleFamilyCsvData.get(parseInt(fid));
+      type: 'FeatureCollection',
+      features: singleFamilyGeo.features.map(f => {
+        const fid = f.properties.fid;
+        const csvRow = singleFamilyCsvData.get(parseInt(fid));
 
-      let value = 0;
+        let normalizedValue = 0;
+        let rawCount = 0;
 
-      if (csvRow && demographicColumns[selectedDemographic]) {
-        const pop = parseFloat(csvRow?.pop || 0) || 0;
-        const count = parseFloat(csvRow?.[demographicColumns[selectedDemographic]] || 0) || 0;
-
-        if (usePercentage) {
-          value = (pop > 0) ? (count / pop) : 0;
-        } else {
-          value = (maxDemoValue > 0) ? (count / maxDemoValue) : 0;
+        if (csvRow && demographicColumns[selectedDemographic]) {
+          rawCount = parseFloat(csvRow[demographicColumns[selectedDemographic]] || 0);
+          if (usePercentage) {
+            const pop = parseFloat(csvRow.pop || 0);
+            normalizedValue = (pop > 0) ? (rawCount / pop) : 0;
+          } else {
+            normalizedValue = (maxDemoValue > 0) ? (rawCount / maxDemoValue) : 0;
+          }
         }
-      }
 
-      return {
-        ...f,
-        id: fid,
-        properties: {
-          ...f.properties,
-          demo_value: value  // <- will now store either % or normalized absolute value
-        }
-      };
-    })
-  };
+        return {
+          ...f,
+          id: fid,
+          properties: {
+            ...f.properties,
+            demo_value: normalizedValue,
+            demo_raw: rawCount
+          }
+        };
+      })
+    };
 
     if (zoningMap.getSource('demo-source')) {
       zoningMap.getSource('demo-source').setData(updatedGeojson);
@@ -435,7 +442,7 @@
           if (usePercentage) {
             displayValue = (props.demo_value * 100).toFixed(1) + '%';
           } else {
-            displayValue = Math.round(props.demo_value).toLocaleString(); // format raw counts with commas
+            displayValue = Math.round(props.demo_raw || 0).toLocaleString(); // format raw counts with commas
           }
 
           infoBox.innerHTML = `
