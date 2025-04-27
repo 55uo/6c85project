@@ -11,14 +11,15 @@
 
   let zoningMap;
   let singleFamilyGeo;
-  let selectedIncomeLevel = 3; // slider value (0-5)
   let singleFamilyCsvData = new Map();
   let activeTab = 'income'; // default tab
 
   // Precomputed cache
   let incomeCache = new Map();
+  let demoCache = new Map();
 
   // Define groups of columns for each income level
+  let selectedIncomeLevel = 3; // slider value (0-5)
   const incomeLevelGroups = [
     ['incu10', 'inc1015', 'inc1520', 'inc2025'],                      // <25k
     ['inc2530', 'inc3035', 'inc3540', 'inc4045', 'inc4550'],           // 25k–50k
@@ -27,6 +28,37 @@
     ['i150200'],                                                       // 150k–200k
     ['in200o']                                                         // >200k
   ];
+
+  // Define demographic groups
+  let selectedDemographic = 'Non-Hispanic White'; // default selection for demographics
+  const demographicColumns = {
+    'Non-Hispanic White': 'nhwhi',
+    'Non-Hispanic Black': 'nhaa',
+    'Non-Hispanic American Indian': 'nhna',
+    'Non-Hispanic Asian': 'nhas',
+    'Non-Hispanic Pacific Islander': 'nhpi',
+    'Non-Hispanic Other Race': 'nhoth',
+    'Non-Hispanic Multi-Race': 'nhmlt',
+    'Hispanic or Latino': 'lat'
+  };
+
+  // Define family size groups
+  let selectedFamilySizeOption = 'Family Households - 2 people'; // default selection for family size
+  const familySizeOptions = {
+    "Family Households - 2 people": "fhh2",
+    "Family Households - 3 people": "fhh3",
+    "Family Households - 4 people": "fhh4",
+    "Family Households - 5 people": "fhh5",
+    "Family Households - 6 people": "fhh6",
+    "Family Households - 7+ people": "fhh7o",
+    "Nonfamily Households - 1 person": "nfhh1",
+    "Nonfamily Households - 2 people": "nfhh2",
+    "Nonfamily Households - 3 people": "nfhh3",
+    "Nonfamily Households - 4 people": "nfhh4",
+    "Nonfamily Households - 5 people": "nfhh5",
+    "Nonfamily Households - 6 people": "nfhh6",
+    "Nonfamily Households - 7+ people": "nfhh7o"
+  };
 
   async function loadData() {
     const singleFamilyCsv = await d3.csv('/single_family_zoning/housing_sf_other_w_census.csv');
@@ -42,7 +74,9 @@
     singleFamilyCsv.forEach(row => {
       const fid = row.fid;
       const totalHouseholds = parseFloat(row.hh || 0);
+      const totalPopulation = parseFloat(row.pop || 0);
 
+      // Income level percentages
       if (totalHouseholds > 0) {
         const percentages = incomeLevelGroups.map(group => {
           let sum = 0;
@@ -55,11 +89,28 @@
       } else {
         incomeCache.set(parseInt(fid), [0, 0, 0, 0, 0, 0]);
       }
+
+      // Demographic group percentages
+      if (totalPopulation > 0) {
+        const demoPercentages = {};
+        for (const [label, columnName] of Object.entries(demographicColumns)) {
+          const count = parseFloat(row[columnName] || 0);
+          demoPercentages[label] = count / totalPopulation; // fraction
+        }
+        demoCache.set(fid, demoPercentages);
+      } else {
+        const zeroPercentages = {};
+        for (const label of Object.keys(demographicColumns)) {
+          zeroPercentages[label] = 0;
+        }
+        demoCache.set(fid, zeroPercentages);
+      }
+    
     });
 
     console.log("Income Cache: ", incomeCache);
+    console.log("Demographics Cache: ", demoCache);
   }
-
 
   async function initZoningMap() {
     mapboxgl.accessToken = MAPBOX_TOKEN;
@@ -78,7 +129,38 @@
     });
   }
 
+  function onTabChange(tabName) {
+    activeTab = tabName;
+
+    // Remove all existing layers and sources before switching
+    if (zoningMap.getLayer('income-layer')) zoningMap.removeLayer('income-layer');
+    if (zoningMap.getLayer('income-highlight')) zoningMap.removeLayer('income-highlight');
+    if (zoningMap.getSource('income-source')) zoningMap.removeSource('income-source');
+
+    if (zoningMap.getLayer('demo-layer')) zoningMap.removeLayer('demo-layer');
+    if (zoningMap.getLayer('demo-highlight')) zoningMap.removeLayer('demo-highlight');
+    if (zoningMap.getSource('demo-source')) zoningMap.removeSource('demo-source');
+
+    if (zoningMap.getLayer('family-layer')) zoningMap.removeLayer('family-layer');
+    if (zoningMap.getLayer('family-highlight')) zoningMap.removeLayer('family-highlight');
+    if (zoningMap.getSource('family-source')) zoningMap.removeSource('family-source');
+
+    // Load the correct layer depending on the new active tab
+    if (activeTab === 'income') {
+      updateIncomeLayer();
+    } else if (activeTab === 'demographics') {
+      updateDemographicsLayer();
+    } else if (activeTab === 'family') {
+      updateFamilyLayer();
+    }
+  }
+
   function updateIncomeLayer() {
+    console.log(activeTab);
+    if (activeTab !== 'income') {
+      return; // Do nothing if not on "By Income" tab
+    }
+
     if (zoningMap.getLayer('income-layer')) {
       zoningMap.removeLayer('income-layer');
     }
@@ -199,9 +281,271 @@
     });
   }
 
+  function updateDemographicsLayer() {
+    console.log(activeTab);
+    if (activeTab !== 'demographics') {
+      return;
+    }
+
+    const updatedGeojson = {
+      type: 'FeatureCollection',
+      features: singleFamilyGeo.features.map(f => {
+        const fid = f.properties.fid;
+        const csvRow = singleFamilyCsvData.get(parseInt(fid));
+        let value = 0;
+        if (csvRow && demographicColumns[selectedDemographic]) {
+          const pop = parseFloat(csvRow.pop || 0);
+          value = (pop > 0) ? (parseFloat(csvRow[demographicColumns[selectedDemographic]]) / pop) : 0;
+        }
+        return {
+          ...f,
+          id: fid,
+          properties: {
+            ...f.properties,
+            demo_percentage: value
+          }
+        };
+      })
+    };
+
+    if (zoningMap.getSource('demo-source')) {
+      zoningMap.getSource('demo-source').setData(updatedGeojson);
+    } else {
+      zoningMap.addSource('demo-source', {
+        type: 'geojson',
+        data: updatedGeojson
+      });
+
+      // Add fill layer
+      zoningMap.addLayer({
+        id: 'demo-layer',
+        type: 'fill',
+        source: 'demo-source',
+        paint: {
+          'fill-color': [
+            'interpolate',
+            ['linear'],
+            ['get', 'demo_percentage'],
+            0, '#f7fbff',        // very pale blue (0%)
+            0.1, '#d2e3f3',      // light blue
+            0.3, '#a6bddb',      // mid blue
+            0.5, '#74a9cf',      // medium-deep blue
+            0.7, '#2b8cbe',      // deep blue
+            0.9, '#045a8d'       // dark blue
+          ],
+          'fill-opacity': 1,
+          'fill-outline-color': '#fff'
+        }
+      });
+
+      // Add hover layer
+      zoningMap.addLayer({
+        id: 'demo-highlight',
+        type: 'line',
+        source: 'demo-source',
+        paint: {
+          'line-color': '#000',
+          'line-width': [
+            'case',
+            ['boolean', ['feature-state', 'hover'], false],
+            3,
+            0
+          ]
+        }
+      });
+
+      // Hover behavior
+      let hoveredFeatureId = null;
+
+      zoningMap.on('mousemove', 'demo-layer', (e) => {
+        const feature = e.features[0];
+        const props = feature.properties;
+
+        if (hoveredFeatureId !== null) {
+          zoningMap.setFeatureState(
+            { source: 'demo-source', id: hoveredFeatureId },
+            { hover: false }
+          );
+        }
+        hoveredFeatureId = feature.id;
+        zoningMap.setFeatureState(
+          { source: 'demo-source', id: hoveredFeatureId },
+          { hover: true }
+        );
+
+        const muniName = props.muni || 'Unknown';
+        const density = (props.demo_percentage * 100).toFixed(1) + '%';
+
+        const infoBox = document.getElementById('hover-info');
+        if (infoBox) {
+          infoBox.innerHTML = `
+            <strong>${muniName}</strong><br/>
+            <b>Density:</b> ${density}<br/>
+          `;
+        }
+      });
+
+      zoningMap.on('mouseleave', 'demo-layer', () => {
+        if (hoveredFeatureId !== null) {
+          zoningMap.setFeatureState(
+            { source: 'demo-source', id: hoveredFeatureId },
+            { hover: false }
+          );
+        }
+        hoveredFeatureId = null;
+
+        const infoBox = document.getElementById('hover-info');
+        if (infoBox) {
+          infoBox.innerHTML = '<i>Hover over a municipality</i>';
+        }
+      });
+    }
+  }
+
+  function updateFamilyLayer() {
+    console.log(activeTab);
+    if (activeTab !== 'family') {
+      return;
+    }
+
+    const selectedColumn = familySizeOptions[selectedFamilySizeOption];
+
+    if (!selectedColumn) {
+      console.error("Invalid family size selection:", selectedFamilySizeOption);
+      return;
+    }
+
+    // Create updated GeoJSON with family size percentage
+    const updatedGeojson = {
+      type: 'FeatureCollection',
+      features: singleFamilyGeo.features.map(f => {
+        const fid = f.properties.fid;
+        const csvRow = singleFamilyCsvData.get(parseInt(fid));
+        const hhTotal = parseFloat(csvRow.hh || 0);
+        const count = parseFloat(csvRow[selectedColumn] || 0);
+        const density = (hhTotal > 0) ? (count / hhTotal) : 0; // fraction between 0–1
+
+        return {
+          ...f,
+          id: fid,
+          properties: {
+            ...f.properties,
+            family_percentage: density
+          }
+        };
+      })
+    };
+
+    if (zoningMap.getSource('family-source')) {
+      zoningMap.getSource('family-source').setData(updatedGeojson);
+    } else {
+      // Add source
+      zoningMap.addSource('family-source', {
+        type: 'geojson',
+        data: updatedGeojson
+      });
+
+      // Add fill layer
+      zoningMap.addLayer({
+        id: 'family-layer',
+        type: 'fill',
+        source: 'family-source',
+        paint: {
+          'fill-color': [
+            'interpolate',
+            ['linear'],
+            ['get', 'family_percentage'],
+            0, '#fff7ec',     // very pale orange (near white)
+            0.02, '#fee8c8',  // pale orange
+            0.05, '#fdbb84',  // orange
+            0.1, '#fc8d59',   // darker orange
+            0.2, '#ef6548',   // red-orange
+            0.4, '#d7301f',   // red
+            0.6, '#990000'    // dark red
+          ],
+          'fill-opacity': 1,
+          'fill-outline-color': '#fff'
+        }
+      });
+
+      // Add hover layer
+      zoningMap.addLayer({
+        id: 'family-highlight',
+        type: 'line',
+        source: 'family-source',
+        paint: {
+          'line-color': '#000', // black outline on hover
+          'line-width': [
+            'case',
+            ['boolean', ['feature-state', 'hover'], false],
+            3,
+            0
+          ]
+        }
+      });
+
+      // Hover behavior
+      let hoveredFeatureId = null;
+
+      zoningMap.on('mousemove', 'family-layer', (e) => {
+        const feature = e.features[0];
+        const props = feature.properties;
+
+        if (hoveredFeatureId !== null) {
+          zoningMap.setFeatureState(
+            { source: 'family-source', id: hoveredFeatureId },
+            { hover: false }
+          );
+        }
+        hoveredFeatureId = feature.id;
+        zoningMap.setFeatureState(
+          { source: 'family-source', id: hoveredFeatureId },
+          { hover: true }
+        );
+
+        const muniName = props.muni || 'Unknown';
+        const density = (props.family_percentage * 100).toFixed(1) + '%';
+
+        const infoBox = document.getElementById('hover-info');
+        if (infoBox) {
+          infoBox.innerHTML = `
+            <strong>${muniName}</strong><br/>
+            <b>Density:</b> ${density}<br/>
+          `;
+        }
+      });
+
+      zoningMap.on('mouseleave', 'family-layer', () => {
+        if (hoveredFeatureId !== null) {
+          zoningMap.setFeatureState(
+            { source: 'family-source', id: hoveredFeatureId },
+            { hover: false }
+          );
+        }
+        hoveredFeatureId = null;
+
+        const infoBox = document.getElementById('hover-info');
+        if (infoBox) {
+          infoBox.innerHTML = '<i>Hover over a municipality</i>';
+        }
+      });
+    }
+  }
+
+
   function onIncomeChange(event) {
     selectedIncomeLevel = parseInt(event.target.value);
     updateIncomeLayer();
+  }
+
+  function onDemographicChange(event) {
+    selectedDemographic = event.target.value;
+    updateDemographicsLayer();
+  }
+
+  function onFamilySizeChange(event) {
+    selectedFamilySizeOption = event.target.value;
+    updateFamilyLayer();
   }
 
   onMount(async () => {
@@ -262,16 +606,38 @@
         <div class="container-fluid d-flex justify-content-between align-items-center mb-4" style="max-width: 1600px; padding: 0 2rem;">
           <ul class="nav nav-tabs" id="housingTabs" role="tablist">
             <li class="nav-item" role="presentation">
-              <button class="nav-link active custom-tab" id="income-tab" data-bs-toggle="tab" data-bs-target="#income" type="button" role="tab">By Income</button>
+              <button 
+                class="nav-link custom-tab" 
+                class:active={activeTab === 'income'} 
+                type="button" 
+                on:click={() => onTabChange('income')}
+              >
+                By Income
+              </button>
             </li>
             <li class="nav-item" role="presentation">
-              <button class="nav-link custom-tab" id="demographics-tab" data-bs-toggle="tab" data-bs-target="#demographics" type="button" role="tab">By Demographics</button>
+              <button 
+                class="nav-link custom-tab"
+                class:active={activeTab === 'demographics'}
+                type="button"
+                on:click={() => onTabChange('demographics')}
+              >
+                By Demographics
+              </button>
             </li>
             <li class="nav-item" role="presentation">
-              <button class="nav-link custom-tab" id="family-tab" data-bs-toggle="tab" data-bs-target="#family" type="button" role="tab">By Family Size</button>
+              <button 
+                class="nav-link custom-tab" 
+                class:active={activeTab === 'family'}
+                type="button" 
+                on:click={() => onTabChange('family')}
+              >
+                By Family Size
+              </button>
             </li>
           </ul>
           <!-- Slider for Income Level -->
+          {#if activeTab === 'income'}
           <div class="d-flex align-items-center gap-3">
             <label for="incomeRange" class="form-label fw-bold mb-0" style="min-width: 120px;">Income Level</label>
             <div class="slider-wrapper">
@@ -300,7 +666,30 @@
                 <span>&gt;200k</span>
               </div>
             </div>
-          </div>          
+          </div>       
+          {/if}
+          <!-- Drop down menu for demo groups-->
+          {#if activeTab === 'demographics'}
+            <div class="d-flex align-items-center gap-3">
+              <label for="demographicSelect" class="form-label fw-bold mb-0" style="min-width: 150px;">Demographic Type</label>
+              <select id="demographicSelect" class="form-select" style="width: 300px;" on:change={onDemographicChange}>
+                {#each Object.keys(demographicColumns) as demo}
+                  <option value={demo}>{demo}</option>
+                {/each}
+              </select>
+            </div>
+          {/if}
+          <!-- Drop down for family size -->
+          {#if activeTab === 'family'}
+            <div class="d-flex align-items-center gap-3">
+              <label for="familySizeSelect" class="form-label fw-bold mb-0" style="min-width: 150px;">Select Family Size</label>
+              <select id="familySizeSelect" class="form-select" style="width: 300px;" on:change={onFamilySizeChange}>
+                {#each Object.keys(familySizeOptions) as sizeLabel}
+                  <option value={sizeLabel}>{sizeLabel}</option>
+                {/each}
+              </select>
+            </div>
+          {/if}
         </div>
 
         <div class="tab-content">
@@ -310,7 +699,13 @@
               <div class="box" style="height: 600px; width: 100%; max-width: 1200px; background-color: #e9e3d9;">
                 <div id="income-map" style="position: relative; height: 100%; width: 100%;">
                   <div id="legend">
-                    <div class="legend-gradient"></div>
+                    {#if activeTab === 'income'}
+                      <div class="income-legend-gradient"></div>
+                    {:else if activeTab === 'demographics'}
+                      <div class="demographics-legend-gradient"></div>
+                    {:else if activeTab === 'family'}
+                      <div class="family-legend-gradient"></div>
+                    {/if}
                     <div class="legend-labels">
                       <span>0%</span>
                       <span>50%</span>
@@ -328,17 +723,6 @@
           <!-- By Demographics Tab -->
           <div class="tab-pane fade" id="demographics" role="tabpanel">
             <div class="row g-4 justify-content-center">
-              <div class="col-md-4">
-                <div class="box">
-                  <label for="demographicSelect" class="form-label fw-bold">Demographic</label>
-                  <select id="demographicSelect" class="form-select">
-                    <option>All</option>
-                    <option>Black</option>
-                    <option>Hispanic</option>
-                    <option>Asian</option>
-                  </select>
-                </div>
-              </div>
               <div class="col-md-8">
                 <div class="box" style="height: 500px; background-color: #e9e3d9;">
                   <div class="d-flex justify-content-center align-items-center h-100 text-dark">
@@ -595,7 +979,7 @@
     font-size: 0.8rem;
   }
 
-  .legend-gradient {
+  .income-legend-gradient {
     width: 100%;
     height: 12px;
     background: linear-gradient(
@@ -606,6 +990,41 @@
       #43a2ca 40%,
       #0868ac 60%,
       #084081 80%
+    );
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    margin-bottom: 5px;
+  }
+
+  .demographics-legend-gradient {
+    width: 100%;
+    height: 12px;
+    background: linear-gradient(
+      to right,
+      #f7fbff 0%,
+      #d2e3f3 10%,
+      #a6bddb 30%,
+      #74a9cf 50%,
+      #2b8cbe 70%,
+      #045a8d 90%
+    );
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    margin-bottom: 5px;
+  }
+
+  .family-legend-gradient {
+    width: 100%;
+    height: 12px;
+    background: linear-gradient(
+      to right,
+      #fff7ec 0%,
+      #fee8c8 2%,
+      #fdbb84 5%,
+      #fc8d59 10%,
+      #ef6548 20%,
+      #d7301f 40%,
+      #990000 60%
     );
     border: 1px solid #ccc;
     border-radius: 4px;
