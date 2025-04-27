@@ -13,6 +13,7 @@
   let singleFamilyGeo;
   let singleFamilyCsvData = new Map();
   let activeTab = 'income'; // default tab
+  let usePercentage = true; // true = show %; false = show raw counts
 
   // Precomputed cache
   let incomeCache = new Map();
@@ -161,124 +162,155 @@
       return; // Do nothing if not on "By Income" tab
     }
 
-    if (zoningMap.getLayer('income-layer')) {
-      zoningMap.removeLayer('income-layer');
-    }
-    if (zoningMap.getLayer('income-highlight')) {
-      zoningMap.removeLayer('income-highlight');
-    }
-    if (zoningMap.getSource('income-source')) {
-      zoningMap.removeSource('income-source');
+    let maxIncomeValue = 0;
+    if (!usePercentage) {
+      // Find the maximum absolute value to normalize
+      singleFamilyGeo.features.forEach(f => {
+        const fid = f.properties.fid;
+        const csvRow = singleFamilyCsvData.get(parseInt(fid));
+        if (csvRow) {
+          const group = incomeLevelGroups[selectedIncomeLevel];
+          let sum = 0;
+          group.forEach(col => {
+            sum += parseFloat(csvRow[col] || 0);
+          });
+          if (sum > maxIncomeValue) {
+            maxIncomeValue = sum;
+          }
+        }
+      });
     }
 
     const updatedGeojson = {
       type: 'FeatureCollection',
       features: singleFamilyGeo.features.map(f => {
         const fid = f.properties.fid;
-        const percentages = incomeCache.get(fid) || [0, 0, 0, 0, 0, 0];
+        const csvRow = singleFamilyCsvData.get(parseInt(fid));
+
+        let value = 0;
+
+        if (usePercentage) {
+          const percentages = incomeCache.get(fid) || [0, 0, 0, 0, 0, 0];
+          value = percentages[selectedIncomeLevel] || 0;
+        } else {
+          const rawCounts = incomeLevelGroups[selectedIncomeLevel].reduce((sum, col) => {
+            return sum + parseFloat(csvRow?.[col] || 0);
+          }, 0);
+          value = (maxIncomeValue > 0) ? (rawCounts / maxIncomeValue) : 0;
+        }
+
         return {
           ...f,
           id: fid,
           properties: {
             ...f.properties,
-            income_percentage: percentages[selectedIncomeLevel]
+            income_value: value   // ← final property is "income_value"
           }
         };
       })
     };
 
-    zoningMap.addSource('income-source', {
-      type: 'geojson',
-      data: updatedGeojson
-    });
+    if (zoningMap.getSource('income-source')) {
+      zoningMap.getSource('income-source').setData(updatedGeojson);
+    } else {
+      zoningMap.addSource('income-source', {
+        type: 'geojson',
+        data: updatedGeojson
+      });
 
-    // Main colored fill layer
-    zoningMap.addLayer({
-      id: 'income-layer',
-      type: 'fill',
-      source: 'income-source',
-      paint: {
-        'fill-color': [
-          'interpolate',
-          ['linear'],
-          ['get', 'income_percentage'],
-          0, '#e0f3db',
-          0.1, '#a8ddb5',
-          0.2, '#7bccc4',
-          0.4, '#43a2ca',
-          0.6, '#0868ac',
-          0.8, '#084081'
-        ],
-        'fill-opacity': 1,
-        'fill-outline-color': '#fff'
-      }
-    });
+      // Main colored fill layer
+      zoningMap.addLayer({
+        id: 'income-layer',
+        type: 'fill',
+        source: 'income-source',
+        paint: {
+          'fill-color': [
+            'interpolate',
+            ['linear'],
+            ['get', 'income_value'],
+            0, '#e0f3db',
+            0.1, '#a8ddb5',
+            0.2, '#7bccc4',
+            0.4, '#43a2ca',
+            0.6, '#0868ac',
+            0.8, '#084081'
+          ],
+          'fill-opacity': 1,
+          'fill-outline-color': '#fff'
+        }
+      });
 
-    // Hover outline layer (dark green)
-    zoningMap.addLayer({
-      id: 'income-highlight',
-      type: 'line',
-      source: 'income-source',
-      paint: {
-        'line-color': '#006400', // DARK GREEN color
-        'line-width': [
-          'case',
-          ['boolean', ['feature-state', 'hover'], false],
-          3,
-          0
-        ]
-      }
-    });
+      // Hover outline layer (dark green)
+      zoningMap.addLayer({
+        id: 'income-highlight',
+        type: 'line',
+        source: 'income-source',
+        paint: {
+          'line-color': '#006400', // DARK GREEN color
+          'line-width': [
+            'case',
+            ['boolean', ['feature-state', 'hover'], false],
+            3,
+            0
+          ]
+        }
+      });
 
-    let hoveredFeatureId = null;
+      let hoveredFeatureId = null;
 
-    zoningMap.on('mousemove', 'income-layer', (e) => {
-      const feature = e.features[0];
-      const props = feature.properties;
-      const fid = props.fid;
-      const csvRow = singleFamilyCsvData.get(parseInt(fid));
+      zoningMap.on('mousemove', 'income-layer', (e) => {
+        const feature = e.features[0];
+        const props = feature.properties;
+        const fid = props.fid;
+        const csvRow = singleFamilyCsvData.get(parseInt(fid));
 
-      // Set feature state
-      if (hoveredFeatureId !== null) {
+        // Set feature state
+        if (hoveredFeatureId !== null) {
+          zoningMap.setFeatureState(
+            { source: 'income-source', id: hoveredFeatureId },
+            { hover: false }
+          );
+        }
+        hoveredFeatureId = feature.id;
         zoningMap.setFeatureState(
           { source: 'income-source', id: hoveredFeatureId },
-          { hover: false }
+          { hover: true }
         );
-      }
-      hoveredFeatureId = feature.id;
-      zoningMap.setFeatureState(
-        { source: 'income-source', id: hoveredFeatureId },
-        { hover: true }
-      );
 
-      // Update the fixed info box
-      const muniName = props.muni || 'Unknown';
-      const density = (props.income_percentage * 100).toFixed(1) + '%';
+        // Update the fixed info box
+        const muniName = props.muni || 'Unknown';
+        const infoBox = document.getElementById('hover-info');
+        if (infoBox) {
+          let displayValue;
+          if (usePercentage) {
+            displayValue = (props.income_value * 100).toFixed(1) + '%';
+          } else {
+            displayValue = Math.round(props.income_value).toLocaleString(); // Format raw count nicely
+          }
 
-      const infoBox = document.getElementById('hover-info');
-      if (infoBox) {
-        infoBox.innerHTML = `
-          <strong>${muniName}</strong><br/>
-          <b>Density:</b> ${density}<br/>
-        `;
-      }
-    });
+          infoBox.innerHTML = `
+            <strong>${muniName}</strong><br/>
+            <b>${usePercentage ? 'Density:' : 'Number of Households:'}</b> ${displayValue}
+          `;
+        }
+      });
 
-    zoningMap.on('mouseleave', 'income-layer', () => {
-      if (hoveredFeatureId !== null) {
-        zoningMap.setFeatureState(
-          { source: 'income-source', id: hoveredFeatureId },
-          { hover: false }
-        );
-      }
-      hoveredFeatureId = null;
+      zoningMap.on('mouseleave', 'income-layer', () => {
+        if (hoveredFeatureId !== null) {
+          zoningMap.setFeatureState(
+            { source: 'income-source', id: hoveredFeatureId },
+            { hover: false }
+          );
+        }
+        hoveredFeatureId = null;
 
-      // Clear info box
-      const infoBox = document.getElementById('hover-info');
-      if (infoBox) {
-        infoBox.innerHTML = '<i>Hover over a municipality</i>';
-      }
-    });
+        // Clear info box
+        const infoBox = document.getElementById('hover-info');
+        if (infoBox) {
+          infoBox.innerHTML = '<i>Hover over a municipality</i>';
+        }
+      });
+    }
   }
 
   function updateDemographicsLayer() {
@@ -287,26 +319,49 @@
       return;
     }
 
-    const updatedGeojson = {
-      type: 'FeatureCollection',
-      features: singleFamilyGeo.features.map(f => {
+    let maxDemoValue = 0;
+    if (!usePercentage) {
+      singleFamilyGeo.features.forEach(f => {
         const fid = f.properties.fid;
         const csvRow = singleFamilyCsvData.get(parseInt(fid));
-        let value = 0;
         if (csvRow && demographicColumns[selectedDemographic]) {
-          const pop = parseFloat(csvRow.pop || 0);
-          value = (pop > 0) ? (parseFloat(csvRow[demographicColumns[selectedDemographic]]) / pop) : 0;
-        }
-        return {
-          ...f,
-          id: fid,
-          properties: {
-            ...f.properties,
-            demo_percentage: value
+          const count = parseFloat(csvRow[demographicColumns[selectedDemographic]] || 0);
+          if (count > maxDemoValue) {
+            maxDemoValue = count;
           }
-        };
-      })
-    };
+        }
+      });
+    }
+
+    const updatedGeojson = {
+    type: 'FeatureCollection',
+    features: singleFamilyGeo.features.map(f => {
+      const fid = f.properties.fid;
+      const csvRow = singleFamilyCsvData.get(parseInt(fid));
+
+      let value = 0;
+
+      if (csvRow && demographicColumns[selectedDemographic]) {
+        const pop = parseFloat(csvRow?.pop || 0) || 0;
+        const count = parseFloat(csvRow?.[demographicColumns[selectedDemographic]] || 0) || 0;
+
+        if (usePercentage) {
+          value = (pop > 0) ? (count / pop) : 0;
+        } else {
+          value = (maxDemoValue > 0) ? (count / maxDemoValue) : 0;
+        }
+      }
+
+      return {
+        ...f,
+        id: fid,
+        properties: {
+          ...f.properties,
+          demo_value: value  // <- will now store either % or normalized absolute value
+        }
+      };
+    })
+  };
 
     if (zoningMap.getSource('demo-source')) {
       zoningMap.getSource('demo-source').setData(updatedGeojson);
@@ -325,7 +380,7 @@
           'fill-color': [
             'interpolate',
             ['linear'],
-            ['get', 'demo_percentage'],
+            ['get', 'demo_value'],
             0, '#f7fbff',        // very pale blue (0%)
             0.1, '#d2e3f3',      // light blue
             0.3, '#a6bddb',      // mid blue
@@ -374,13 +429,18 @@
         );
 
         const muniName = props.muni || 'Unknown';
-        const density = (props.demo_percentage * 100).toFixed(1) + '%';
-
         const infoBox = document.getElementById('hover-info');
         if (infoBox) {
+          let displayValue;
+          if (usePercentage) {
+            displayValue = (props.demo_value * 100).toFixed(1) + '%';
+          } else {
+            displayValue = Math.round(props.demo_value).toLocaleString(); // format raw counts with commas
+          }
+
           infoBox.innerHTML = `
             <strong>${muniName}</strong><br/>
-            <b>Density:</b> ${density}<br/>
+            <b>${usePercentage ? 'Density:' : 'Population Count:'}</b> ${displayValue}
           `;
         }
       });
@@ -415,22 +475,39 @@
       return;
     }
 
+    // First, find the max value if using absolute mode
+    let maxFamilyCount = 0;
+    if (!usePercentage) {
+      singleFamilyCsvData.forEach(row => {
+        const val = parseFloat(row[selectedColumn] || 0);
+        if (val > maxFamilyCount) {
+          maxFamilyCount = val;
+        }
+      });
+    }
+
     // Create updated GeoJSON with family size percentage
     const updatedGeojson = {
       type: 'FeatureCollection',
       features: singleFamilyGeo.features.map(f => {
         const fid = f.properties.fid;
         const csvRow = singleFamilyCsvData.get(parseInt(fid));
-        const hhTotal = parseFloat(csvRow.hh || 0);
-        const count = parseFloat(csvRow[selectedColumn] || 0);
-        const density = (hhTotal > 0) ? (count / hhTotal) : 0; // fraction between 0–1
+        const hhTotal = parseFloat(csvRow?.hh || 0);
+        const count = parseFloat(csvRow?.[selectedColumn] || 0) || 0;
+
+        let value = 0;
+        if (usePercentage) {
+          value = (hhTotal > 0) ? (count / hhTotal) : 0;
+        } else {
+          value = (maxFamilyCount > 0) ? (count / maxFamilyCount) : 0;
+        }
 
         return {
           ...f,
           id: fid,
           properties: {
             ...f.properties,
-            family_percentage: density
+            family_value: value  // <- unified field!
           }
         };
       })
@@ -454,7 +531,7 @@
           'fill-color': [
             'interpolate',
             ['linear'],
-            ['get', 'family_percentage'],
+            ['get', 'family_value'],
             0, '#fff7ec',     // very pale orange (near white)
             0.02, '#fee8c8',  // pale orange
             0.05, '#fdbb84',  // orange
@@ -504,13 +581,18 @@
         );
 
         const muniName = props.muni || 'Unknown';
-        const density = (props.family_percentage * 100).toFixed(1) + '%';
-
         const infoBox = document.getElementById('hover-info');
         if (infoBox) {
+          let displayValue;
+          if (usePercentage) {
+            displayValue = (props.family_value * 100).toFixed(1) + '%';
+          } else {
+            displayValue = (props.family_value * maxFamilyCount).toFixed(0); // show raw count!
+          }
+
           infoBox.innerHTML = `
             <strong>${muniName}</strong><br/>
-            <b>Density:</b> ${density}<br/>
+            <b>${usePercentage ? 'Density:' : 'Number of Households:'}</b> ${displayValue}
           `;
         }
       });
@@ -636,6 +718,20 @@
               </button>
             </li>
           </ul>
+          <!-- Switch between percentage and raw counts-->
+          <div class="density-toggle-switch">
+            <input 
+              type="checkbox" 
+              id="densitySwitch" 
+              class="toggle-input" 
+              bind:checked={usePercentage}
+              on:change={() => { onTabChange(activeTab); }}
+            />
+            <label class="toggle-label" for="densitySwitch">
+              <span class="toggle-text">{usePercentage ? 'Density (%)' : 'Absolute #'}</span>
+              <span class="toggle-thumb"></span>
+            </label>
+          </div>                        
           <!-- Slider for Income Level -->
           {#if activeTab === 'income'}
           <div class="d-flex align-items-center gap-3">
@@ -707,9 +803,15 @@
                       <div class="family-legend-gradient"></div>
                     {/if}
                     <div class="legend-labels">
-                      <span>0%</span>
-                      <span>50%</span>
-                      <span>100%</span>
+                      {#if usePercentage}
+                        <span>0%</span>
+                        <span>50%</span>
+                        <span>100%</span>
+                      {:else}
+                        <span>0</span>
+                        <span>mid</span>
+                        <span>high</span>
+                      {/if}
                     </div>
                   </div>
                   <div id="hover-info" class="info-box">
@@ -1052,6 +1154,61 @@
     z-index: 10;
   }
 
+  .density-toggle-switch {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0 2rem;
+    position: relative;
+  }
+
+  .toggle-input {
+    display: none; /* hide the raw checkbox */
+  }
+
+  .toggle-label {
+    width: 160px;
+    height: 44px;
+    background-color: var(--accent-hope); /* soft sage green */
+    border-radius: 50px;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end; /* <<-- default to right */
+    padding: 0 12px;
+    position: relative;
+    cursor: pointer;
+    font-weight: bold;
+    font-size: 0.95rem;
+    color: white;
+    transition: all 0.3s;
+    overflow: hidden;
+  }
+
+  .toggle-thumb {
+    position: absolute;
+    left: 4px;
+    top: 4px;
+    width: 36px;
+    height: 36px;
+    background-color: white;
+    border-radius: 50%;
+    transition: all 0.3s ease;
+    z-index: 2;
+  }
+
+  .toggle-input:checked + .toggle-label {
+    justify-content: flex-start; /* when checked, move text to left */
+  }
+
+  .toggle-input:checked + .toggle-label .toggle-thumb {
+    transform: translateX(116px); /* move thumb right */
+  }
+
+  .toggle-text {
+    z-index: 1;
+    white-space: nowrap;
+    transition: all 0.3s;
+  }
 </style>
 
 <div class="nav-dots">
