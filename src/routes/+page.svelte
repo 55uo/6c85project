@@ -19,6 +19,9 @@
   let incomeCache = new Map();
   let demoCache = new Map();
 
+   // Scatterplot data
+   let scatterData = [];
+
   // Define groups of columns for each income level
   let selectedIncomeLevel = 3; // slider value (0-5)
   const incomeLevelGroups = [
@@ -65,11 +68,22 @@
     const singleFamilyCsv = await d3.csv('/single_family_zoning/housing_sf_other_w_census.csv');
     singleFamilyGeo = await fetch('/single_family_zoning/housing_sf_other_w_census_reprojected.json').then(res => res.json());
 
+    const unitPriceCsv = await d3.csv('/average_unit_price_by_municipality.csv');
+
     // Build CSV map
     singleFamilyCsvData = new Map();
     singleFamilyCsv.forEach(row => {
       singleFamilyCsvData.set(parseInt(row.fid), row);
     });
+
+    // Build unit price map
+    const unitPriceMap = new Map();
+    unitPriceCsv.forEach(d => {
+      if (d.muni && d.average_unit_price) {
+        unitPriceMap.set(d.muni.trim().toLowerCase(), parseFloat(d.average_unit_price));
+      }
+    });
+    console.log("Unit Price Map: ", unitPriceMap);
 
     // Build precomputed cache
     singleFamilyCsv.forEach(row => {
@@ -111,6 +125,47 @@
 
     console.log("Income Cache: ", incomeCache);
     console.log("Demographics Cache: ", demoCache);
+
+    const incomeMidpoints = {
+      incu10: 5000,
+      inc1015: 12500,
+      inc1520: 17500,
+      inc2025: 22500,
+      inc2530: 27500,
+      inc3035: 32500,
+      inc3540: 37500,
+      inc4045: 42500,
+      inc4550: 47500,
+      inc5060: 55000,
+      inc6075: 67500,
+      i7599: 87500,
+      i100125: 112500,
+      i125150: 137500,
+      i150200: 175000,
+      in200o: 225000  // assume $225k for >200k
+    };
+
+    scatterData = singleFamilyCsv.map(row => {
+      let totalIncome = 0;
+      let totalHouseholds = 0;
+
+      for (const [col, midpoint] of Object.entries(incomeMidpoints)) {
+        const count = parseFloat(row[col] || 0);
+        totalIncome += count * midpoint;
+        totalHouseholds += count;
+      }
+
+      const averageIncome = totalHouseholds > 0 ? totalIncome / totalHouseholds : null;
+      const unitPrice = unitPriceMap.get(row.muni?.trim().toLowerCase()) || null;
+
+      return {
+        muni: row.muni,
+        avgIncome: averageIncome,
+        avgUnitPrice: unitPrice,
+      };
+    }).filter(d => d.avgIncome !== null && d.avgUnitPrice !== null);
+
+    console.log('Scatter Data', scatterData);
   }
 
   async function initZoningMap() {
@@ -637,8 +692,138 @@
     updateFamilyLayer();
   }
 
+  function initScatterplot() {
+    const margin = { top: 20, right: 30, bottom: 50, left: 70 };
+    const width = 600 - margin.left - margin.right;
+    const height = 400 - margin.top - margin.bottom;
+
+    const svg = d3.select("#scatterplot")
+      .append("svg")
+      .attr("width", width + margin.left + margin.right + 100)  // leave room for colorbar
+      .attr("height", height + margin.top + margin.bottom)
+      .append("g")
+      .attr("transform", `translate(${margin.left},${margin.top})`);
+
+    // X Scale
+    const x = d3.scaleLinear()
+      .domain(d3.extent(scatterData, d => d.avgIncome))
+      .nice()
+      .range([0, width]);
+
+    // Y Scale
+    const y = d3.scaleLinear()
+      .domain(d3.extent(scatterData, d => d.avgUnitPrice))
+      .nice()
+      .range([height, 0]);
+
+    // Compute "years to pay off"
+    scatterData.forEach(d => {
+      d.yearsToPayoff = d.avgUnitPrice / d.avgIncome;
+    });
+
+    // Color scale (similar to your matplotlib one)
+    const color = d3.scaleSequential(d3.interpolateMagma)
+      .domain([0, 70]); // cap at 70 years payoff
+
+    // Axes
+    svg.append("g")
+      .attr("transform", `translate(0,${height})`)
+      .call(d3.axisBottom(x).tickFormat(d3.format("$.2s")));
+
+    svg.append("text")
+      .attr("x", width / 2)
+      .attr("y", height + 40)
+      .attr("text-anchor", "middle")
+      .text("Average Household Yearly Income ($)")
+      .style("font-size", "12px");
+
+    svg.append("g")
+      .call(d3.axisLeft(y));
+
+    svg.append("text")
+      .attr("transform", "rotate(-90)")
+      .attr("x", -height / 2)
+      .attr("y", -50)
+      .attr("text-anchor", "middle")
+      .text("Average Household Unit Purchase Price ($)")
+      .style("font-size", "12px");
+
+    // Scatter points
+    svg.selectAll("circle")
+      .data(scatterData)
+      .enter()
+      .append("circle")
+      .attr("cx", d => x(d.avgIncome))
+      .attr("cy", d => y(d.avgUnitPrice))
+      .attr("r", 5)
+      .attr("fill", d => color(Math.min(d.yearsToPayoff, 70)))
+      .attr("opacity", 0.8);
+
+    // Add dashed red line for "10 years of income" = affordable line
+    svg.append("line")
+      .attr("x1", x.range()[0])
+      .attr("y1", y(10 * d3.min(scatterData, d => d.avgIncome)))  // 10×lowest income
+      .attr("x2", x.range()[1])
+      .attr("y2", y(10 * d3.max(scatterData, d => d.avgIncome)))  // 10×highest income
+      .attr("stroke", "red")
+      .attr("stroke-width", 2)
+      .attr("stroke-dasharray", "5,5");
+
+    // Legend
+    const legendHeight = 200;
+    const legendWidth = 20;
+
+    const legendSvg = svg.append("g")
+      .attr("transform", `translate(${width + 40},20)`);
+
+    const legendScale = d3.scaleLinear()
+      .domain([70, 0])  // reverse to match vertical gradient
+      .range([0, legendHeight]);
+
+    const legendAxis = d3.axisRight(legendScale)
+      .ticks(6)
+      .tickFormat(d => d);
+
+    // Define a gradient
+    const defs = svg.append("defs");
+
+    const linearGradient = defs.append("linearGradient")
+      .attr("id", "legend-gradient")
+      .attr("x1", "0%")
+      .attr("y1", "100%")
+      .attr("x2", "0%")
+      .attr("y2", "0%");
+
+    const legendStops = d3.range(0, 1.01, 0.01);
+    legendStops.forEach(t => {
+      linearGradient.append("stop")
+        .attr("offset", `${t * 100}%`)
+        .attr("stop-color", color(t * 70));
+    });
+
+    // Draw the color rect
+    legendSvg.append("rect")
+      .attr("width", legendWidth)
+      .attr("height", legendHeight)
+      .style("fill", "url(#legend-gradient)");
+
+    // Draw the axis
+    legendSvg.append("g")
+      .attr("transform", `translate(${legendWidth}, 0)`)
+      .call(legendAxis);
+
+    // Legend Label
+    legendSvg.append("text")
+      .attr("x", 0)
+      .attr("y", -10)
+      .attr("text-anchor", "start")
+      .style("font-size", "12px")
+      .text("Years to Pay Off");
+  }
+
   onMount(async () => {
     await loadData();
+    initScatterplot();
     await initZoningMap();
   });
 </script>
@@ -669,14 +854,15 @@
     </section>
 
     <section id="price" class="alt-bg">
-        <div class="section-header">Income vs Housing Price</div>
-        <div class="box text-center" style="height: 400px;">
-        [ Affordability Visualization Placeholder ]
-        </div>
-        <div class="analysis-box">
-        [ What patterns does this graph show? What does it mean for different income levels? ]
-        </div>
-    </section>
+      <div class="section-header">Income vs Housing Price</div>
+      <div class="box text-center" style="height: 400px;">
+        <div id="scatterplot" style="width: 100%; height: 100%;"></div>
+      </div>
+      
+      <div class="analysis-box">
+      [ What patterns does this graph show? What does it mean for different income levels? ]
+      </div>
+  </section>
 
     <section id="availability">
         <div class="section-header">Housing Availability Over Time</div>
