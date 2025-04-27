@@ -1,652 +1,506 @@
 <script>
-  import { onMount } from 'svelte';
-  import mapboxgl from 'mapbox-gl';
-  import * as d3 from 'd3';
+  import { onMount } from "svelte";
+  import mapboxgl from "mapbox-gl";
+  import * as d3 from "d3";
 
-  let map;
   const MAPBOX_TOKEN = 'pk.eyJ1Ijoic3N1byIsImEiOiJjbTk5Z2NnNWIwNDh5MnJwdjFwZGhnZmU2In0.DlLRt3C3qdBGprZR4SvRVQ';
 
-  let hoveredId = null;
-
-  // Map configuration:
   let longitude = -71.0589;
   let latitude = 42.3601;
-  let zoom = 9; // Default zoom adjusted to 8
+  let zoom = 9;
 
-  // Filter state stored as arrays.
-  let selectedIncome = 'All Income Levels';
-  let selectedFamily = 'All Family Sizes';
+  let zoningMap;
+  let singleFamilyGeo;
+  let selectedIncomeLevel = 0; // slider value (0-5)
 
-  // CSV data will be stored in a Map keyed by fid.
-  let csvData = new Map();
+  // Precomputed cache
+  let incomeCache = new Map();
 
-  // Toggle to show top 10 matches.
-  let showTop10 = false;
+  // Define groups of columns for each income level
+  const incomeLevelGroups = [
+    ['incu10', 'inc1015', 'inc1520', 'inc2025'],                      // <25k
+    ['inc2530', 'inc3035', 'inc3540', 'inc4045', 'inc4550'],           // 25k–50k
+    ['inc5060', 'inc6075', 'i7599'],                                   // 50k–100k
+    ['i100125', 'i125150'],                                            // 100k–150k
+    ['i150200'],                                                       // 150k–200k
+    ['in200o']                                                         // >200k
+  ];
 
-  // Define income buckets – keys must match the labels on the buttons.
-  const incomeBuckets = {
-    'Under $25K': ['incu10', 'inc1015', 'inc1520', 'inc2025'],
-    '$25K - $50K': ['inc2530', 'inc3035', 'inc3540', 'inc4045', 'inc4550'],
-    '$50K - $75K': ['inc5060', 'inc6075'],
-    '$75K - $100K': ['i7599'],
-    '$100K - $150K': ['i100125', 'i125150'],
-    '$150K & above': ['i150200', 'in200o']
-  };
+  async function loadData() {
+    const singleFamilyCsv = await d3.csv('/single_family_zoning/housing_sf_other_w_census.csv');
+    singleFamilyGeo = await d3.json('/single_family_zoning/housing_sf_other_w_census_reprojected.json');
 
-  // Define family fields – keys must match the labels.
-  const familyFields = {
-    '1-person': ['nfhh1'],
-    '2-person': ['fhh2', 'nfhh2'],
-    '3-person': ['fhh3', 'nfhh3'],
-    '4-person': ['fhh4', 'nfhh4'],
-    '5-person': ['fhh5', 'nfhh5'],
-    '6-person': ['fhh6', 'nfhh6'],
-    '7+ persons': ['fhh7o', 'nfhh7o']
-  };
-
-  // Toggle functions for filter buttons.
-
-  // function toggleIncome(bucket) {
-  //   if (bucket === 'All Income Levels') {
-  //     selectedIncome = [];
-  //   } else if (selectedIncome.includes(bucket)) {
-  //     selectedIncome = selectedIncome.filter(b => b !== bucket);
-  //   } else {
-  //     selectedIncome = [...selectedIncome, bucket];
-  //   }
-  // }
-  function selectIncome(bucket) {
-    selectedIncome = bucket;
-  };
-
-  // function toggleFamily(bucket) {
-  //   if (bucket === 'All Family Sizes') {
-  //     selectedFamily = [];
-  //   } else if (selectedFamily.includes(bucket)) {
-  //     selectedFamily = selectedFamily.filter(b => b !== bucket);
-  //   } else {
-  //     selectedFamily = [...selectedFamily, bucket];
-  //   }
-  // }
-  function selectFamily(bucket) {
-    selectedFamily = bucket;
-  }
-
-  function resetFilters() {
-    selectedIncome = 'All Income Levels';
-    selectedFamily = 'All Family Sizes';
-  }
-
-  function toggleTop10View() {
-    showTop10 = !showTop10;
-  }
-
-
-  // Updated isMatch function:
-  // function isMatch(row) {
-  //   if (selectedIncome.length === 0 && selectedFamily.length === 0) {
-  //     return true;
-  //   }
-  //   let incomeMatch = true;
-  //   let familyMatch = true;
-  //   if (selectedIncome.length > 0) {
-  //     incomeMatch = selectedIncome.some(bucket =>
-  //       incomeBuckets[bucket].some(col => (+row[col] || 0) > 0)
-  //     );
-  //   }
-  //   if (selectedFamily.length > 0) {
-  //     familyMatch = selectedFamily.some(bucket =>
-  //       familyFields[bucket].some(col => (+row[col] || 0) > 0)
-  //     );
-  //   }
-  //   return incomeMatch && familyMatch;
-  // }
-
-  // Example thresholds for normalized scores.
-  // For instance, if the average value is greater than or equal to 0.5, consider it a match.
-  const incomeThreshold = 0.5;
-  const familyThreshold = 0.5;
-
-  /**
-   * Enhanced filtering function with normalization:
-   * - For each category, sum the values from all columns in the selected buckets.
-   * - Divide by the total number of values (i.e., the number of columns across all selected buckets) to get an average.
-   * - The row is a match if the normalized (average) score in each active category exceeds the threshold.
-   */
-  // function isMatch(row) {
-  //   // If no filters active at all, highlight all.
-  //   if (selectedIncome.length === 0 && selectedFamily.length === 0) {
-  //     return true;
-  //   }
-
-  //   let incomeSum = 0;
-  //   let incomeCount = 0;
-  //   let familySum = 0;
-  //   let familyCount = 0;
-
-  //   // Compute normalized income score if any income filters are selected.
-  //   if (selectedIncome.length > 0) {
-  //     selectedIncome.forEach(bucket => {
-  //       incomeBuckets[bucket].forEach(col => {
-  //         incomeSum += (+row[col] || 0);
-  //         incomeCount++;
-  //       });
-  //     });
-  //   }
-  //   // Compute normalized family score if any family filters are selected.
-  //   if (selectedFamily.length > 0) {
-  //     selectedFamily.forEach(bucket => {
-  //       familyFields[bucket].forEach(col => {
-  //         familySum += (+row[col] || 0);
-  //         familyCount++;
-  //       });
-  //     });
-  //   }
-
-  //   // Calculate average (normalized) score for each category.
-  //   const incomeScore = incomeCount > 0 ? incomeSum / incomeCount : 0;
-  //   const familyScore = familyCount > 0 ? familySum / familyCount : 0;
-
-  //   // Determine if each category meets its threshold.
-  //   const incomeMatch = selectedIncome.length > 0 ? (incomeScore >= incomeThreshold) : true;
-  //   const familyMatch = selectedFamily.length > 0 ? (familyScore >= familyThreshold) : true;
-
-  //   return incomeMatch && familyMatch;
-  // }
-
-  function isMatch(row) {
-    // 1) If neither filter is active, highlight all.
-    const noIncomeFilter = selectedIncome === 'All Income Levels';
-    const noFamilyFilter = selectedFamily === 'All Family Sizes';
-    if (noIncomeFilter && noFamilyFilter) {
-      return true;
-    }
-
-    // 2) Check income bracket against threshold
-    let incomeMatch = true;
-    if (!noIncomeFilter) {
-      const cols = incomeBuckets[selectedIncome]; // e.g. ['inc2530', ...]
-      const sum  = cols.reduce((acc, col) => acc + (+row[col] || 0), 0);
-      const avg  = sum / cols.length;
-      incomeMatch = avg >= incomeThreshold;
-    }
-
-    // 3) Check family size bracket against threshold
-    let familyMatch = true;
-    if (!noFamilyFilter) {
-      const cols = familyFields[selectedFamily]; // e.g. ['fhh3','nfhh3']
-      const sum  = cols.reduce((acc, col) => acc + (+row[col] || 0), 0);
-      const avg  = sum / cols.length;
-      familyMatch = avg >= familyThreshold;
-    }
-
-    // 4) Only rows passing both filters are matches
-    return incomeMatch && familyMatch;
-  }
-
-
-  // Function to compute a raw score for a municipality.
-  // Here we simply sum all the income and family columns across all buckets.
-  // (You can modify this function to include weights or normalization as needed.)
-  function computeScore(row) {
-    let score = 0;
-    Object.values(incomeBuckets).forEach(bucket => {
-      bucket.forEach(col => {
-        score += (+row[col] || 0);
-      });
+    // Build CSV map
+    singleFamilyCsvData = new Map();
+    singleFamilyCsv.forEach(row => {
+      singleFamilyCsvData.set(parseInt(row.fid), row);
     });
-    Object.values(familyFields).forEach(bucket => {
-      bucket.forEach(col => {
-        score += (+row[col] || 0);
-      });
+
+    // Build precomputed cache
+    singleFamilyCsv.forEach(row => {
+      const fid = row.fid;
+      const totalHouseholds = parseFloat(row.hh || 0);
+
+      if (totalHouseholds > 0) {
+        const percentages = incomeLevelGroups.map(group => {
+          let sum = 0;
+          group.forEach(col => {
+            sum += parseFloat(row[col] || 0);
+          });
+          return sum / totalHouseholds; // fraction
+        });
+        incomeCache.set(parseInt(fid), percentages);
+      } else {
+        incomeCache.set(parseInt(fid), [0, 0, 0, 0, 0, 0]);
+      }
     });
-    return score;
   }
 
-   // Function to update the map data using the normal filtering logic.
-   function updateMap() {
-    if (map && map.isStyleLoaded() && map.getSource('zoning') && csvData.size > 0) {
-      const source = map.getSource('zoning');
-      const geojson = source._data;
-      geojson.features.forEach(f => {
-        const row = csvData.get(String(f.properties.fid).trim());
-        f.properties.match = row ? (isMatch(row) ? 1 : 0) : 0;
-      });
-      source.setData(geojson);
-    }
-  }
 
-  // Function to update the map data to highlight only the top 10 scored municipalities.
-  function updateTop10() {
-    if (map && map.isStyleLoaded() && map.getSource('zoning') && csvData.size > 0) {
-      const source = map.getSource('zoning');
-      const geojson = source._data;
-      // Compute score for each feature.
-      geojson.features.forEach(f => {
-        const row = csvData.get(String(f.properties.fid).trim());
-        f.properties.score = row ? computeScore(row) : 0;
-      });
-      // Sort features descending by score.
-      const sorted = [...geojson.features].sort((a, b) => b.properties.score - a.properties.score);
-      // Get the top 10 fids.
-      const top10Fids = new Set(sorted.slice(0, 10).map(f => f.properties.fid));
-      // Update match: only features in top10 get highlighted.
-      geojson.features.forEach(f => {
-        f.properties.match = top10Fids.has(f.properties.fid) ? 1 : 0;
-      });
-      source.setData(geojson);
-    }
-  }
-
-  // Function to recenter the map.
-  function recenterMap() {
-    if (map) {
-      map.flyTo({
-        center: [longitude, latitude],
-        zoom: zoom
-      });
-    }
-  }
-
-  // onMount: Initialize the map and load data.
-  onMount(async () => {
+  async function initZoningMap() {
     mapboxgl.accessToken = MAPBOX_TOKEN;
-    map = new mapboxgl.Map({
-      container: 'map',
-      style: 'mapbox://styles/mapbox/light-v11',
+    zoningMap = new mapboxgl.Map({
+      container: 'income-map', // Make sure your HTML map container ID matches
+      style: 'mapbox://styles/mapbox/streets-v12',
       center: [longitude, latitude],
       zoom: zoom
     });
-    map.addControl(new mapboxgl.NavigationControl(), 'top-right');
 
-    // Load CSV data
-    // const rawCsv = await d3.csv(import.meta.env.BASE_URL + '/housing_sf_other_w_census.csv');
-    const rawCsv = await d3.csv('/housing_sf_other_w_census.csv');
-    rawCsv.forEach(row => {
-      csvData.set(row.fid, row);
+    zoningMap.addControl(new mapboxgl.NavigationControl(), 'top-right');
+
+    zoningMap.on('load', () => {
+      updateIncomeLayer(); // Draw initial map
     });
+  }
 
-    // Wait for the map to load.
-    await new Promise(resolve => map.on('load', resolve));
+  function updateIncomeLayer() {
+    if (zoningMap.getLayer('income-layer')) {
+      zoningMap.removeLayer('income-layer');
+    }
+    if (zoningMap.getSource('income-source')) {
+      zoningMap.removeSource('income-source');
+    }
 
-    // Load GeoJSON data.
-    // const zoning = await fetch(import.meta.env.BASE_URL + '/housing_sf_other_w_census_reprojected.json').then(res => res.json());
-    const zoning = await fetch('/housing_sf_other_w_census_reprojected.json').then(res => res.json());
+    const updatedGeojson = {
+      type: 'FeatureCollection',
+      features: singleFamilyGeo.features.map(f => {
+        const fid = f.properties.fid;
+        const percentages = incomeCache.get(fid) || [0, 0, 0, 0, 0, 0];
+        return {
+          ...f,
+          properties: {
+            ...f.properties,
+            income_percentage: percentages[selectedIncomeLevel]
+          }
+        };
+      })
+    };
 
-    // Compute initial match property for each feature.
-    zoning.features.forEach(f => {
-      const row = csvData.get(f.properties.fid);
-      f.properties.match = row ? (isMatch(row) ? 1 : 0) : 0;
-    });
-
-    // Add GeoJSON source.
-    map.addSource('zoning', {
+    zoningMap.addSource('income-source', {
       type: 'geojson',
-      data: zoning
+      data: updatedGeojson
     });
 
-    // Add fill layer with updated fill colors.
-    map.addLayer({
-      id: 'zoning-fill',
+    zoningMap.addLayer({
+      id: 'income-layer',
       type: 'fill',
-      source: 'zoning',
+      source: 'income-source',
       paint: {
         'fill-color': [
-          'case',
-          ['==', ['get', 'match'], 1],
-          '#ff7f50',  // Filtered highlight: darker coral
-          '#ffccb3'   // Default fill: light coral
+          'interpolate',
+          ['linear'],
+          ['get', 'income_percentage'],
+          0, '#f7fbff',
+          0.1, '#deebf7',
+          0.2, '#c6dbef',
+          0.4, '#6baed6',
+          0.6, '#2171b5'
         ],
         'fill-opacity': 0.7
       }
     });
-
-    // HOVER outline layer
-    map.addLayer({
-      id: 'zoning-hover',
-      type: 'line',
-      source: 'zoning',
-      paint: {
-        'line-color': '#333',
-        'line-width': 3
-      },
-      filter: ['==', ['feature-state', 'hover'], true]
-    });
-
-    // Setup hover popup.
-    const popup = new mapboxgl.Popup({ closeButton: false, closeOnClick: false });
-    map.on('mouseenter', 'zoning-fill', (e) => {
-      map.getCanvas().style.cursor = 'pointer';
-      const feature = e.features[0];
-      const muni = feature.properties.muni;
-      popup.setLngLat(e.lngLat)
-           .setHTML(`<strong>${muni}</strong>`)
-           .addTo(map);
-    });
-    map.on('mouseleave', 'zoning-fill', () => {
-      map.getCanvas().style.cursor = '';
-      popup.remove();
-    });
-
-    // Highlight hovered feature
-    map.on('mousemove', 'zoning-fill', (e) => {
-      if (hoveredId !== null) {
-        map.setFeatureState({ source: 'zoning', id: hoveredId }, { hover: false });
-      }
-      hoveredId = e.features[0].id;
-      map.setFeatureState({ source: 'zoning', id: hoveredId }, { hover: true });
-    });
-    map.on('mouseleave', 'zoning-fill', () => {
-      if (hoveredId !== null) {
-        map.setFeatureState({ source: 'zoning', id: hoveredId }, { hover: false });
-      }
-      hoveredId = null;
-    });
-    
-  });
-
-  // Reactive block to update the map when filters change.
-  $: {
-    console.log('Filters changed - Income:', selectedIncome, 'Family:', selectedFamily);
-    if (map && map.isStyleLoaded() && map.getSource('zoning') && csvData.size > 0) {
-      if (showTop10) {
-        updateTop10();
-      } else {
-        updateMap();
-      }
-    }
   }
 
+  function onIncomeChange(event) {
+    selectedIncomeLevel = parseInt(event.target.value);
+    updateIncomeLayer();
+  }
+
+  onMount(async () => {
+    await loadData();
+    await initZoningMap();
+  });
 </script>
 
-<div class="page">
-  <section class="intro">
-    <h1>Explore Housing Access in Greater Boston</h1>
-    <p>
-      Use our interactive zoning map to understand how policies shape affordability—
-      and discover where you might call home.
-    </p>
-  </section>
+<svelte:head>
+  <link
+    href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha3/dist/css/bootstrap.min.css"
+    rel="stylesheet"
+  />
+</svelte:head>
 
-  <section class="map-section">
-    <div class="map-and-filters">
-      <!-- Sidebar containing Filters -->
-      <div class="sidebar">
-        <div class="filters-container">
-          <!-- Top 10 toggle button -->
-          <button class="top10-button" on:click={toggleTop10View}>
-            {showTop10 ? "Show All" : "Show Top 10"}
-          </button>
-          <!-- Income Level Filter Group -->
-          <div class="filter-group">
-            <h4>Income Level</h4>
-            <p class="hint">Choose the bracket that matches your annual household income.</p>
-            <button on:click={() => selectIncome('All Income Levels')}
-                    class:active={selectedIncome === 'All Income Levels'}>
-              All Income Levels
-            </button>
-            <button on:click={() => selectIncome('Under $25K')}
-                    class:active={selectedIncome === 'Under $25K'}>
-              Under $25K
-            </button>
-            <button on:click={() => selectIncome('$25K - $50K')}
-                    class:active={selectedIncome === '$25K - $50K'}>
-              $25K - $50K
-            </button>
-            <button on:click={() => selectIncome('$50K - $75K')}
-                    class:active={selectedIncome === '$50K - $75K'}>
-              $50K - $75K
-            </button>
-            <button on:click={() => selectIncome('$75K - $100K')}
-                    class:active={selectedIncome === '$75K - $100K'}>
-              $75K - $100K
-            </button>
-            <button on:click={() => selectIncome('$100K - $150K')}
-                    class:active={selectedIncome === '$100K - $150K'}>
-              $100K - $150K
-            </button>
-            <button on:click={() => selectIncome('$150K & above')}
-                    class:active={selectedIncome === '$150K & above'}>
-              $150K & above
-            </button>
+<main>
+    <section id="hero" class="alt-bg">
+        <div class="section-header">Reforming Zoning for Affordable Housing</div>
+        <p class="section-intro">
+          Explore how zoning affects housing availability and what reforms can mean for you.
+        </p>
+    </section>
+
+    <section id="history">
+        <div class="section-header">History of Zoning in Boston</div>
+        <div class="box">
+        <p>[ A paragraph discussing zoning origins, exclusionary practices, impacts on affordability. ]</p>
+        </div>
+        <div class="analysis-box">
+        [ Add your analysis or commentary on zoning history here. ]
+        </div>
+    </section>
+
+    <section id="price" class="alt-bg">
+        <div class="section-header">Income vs Housing Price</div>
+        <div class="box text-center" style="height: 400px;">
+        [ Affordability Visualization Placeholder ]
+        </div>
+        <div class="analysis-box">
+        [ What patterns does this graph show? What does it mean for different income levels? ]
+        </div>
+    </section>
+
+    <section id="availability">
+        <div class="section-header">Housing Availability Over Time</div>
+        <input type="range" min="1980" max="2025" class="form-range mb-4" />
+        <div class="box text-center" style="height: 400px;">
+        [ Housing Timeline Map Placeholder ]
+        </div>
+        <div class="analysis-box">
+        [ Discuss trends in development—where, when, and how it impacts communities. ]
+        </div>
+    </section>
+
+    <section id="map" class="alt-bg">
+        <div class="section-header">Interactive Housing Explorer</div>
+        <!-- Tabs and Slider side-by-side -->
+        <div class="container-fluid d-flex justify-content-between align-items-center mb-4" style="max-width: 1600px; padding: 0 2rem;">
+          <ul class="nav nav-tabs" id="housingTabs" role="tablist">
+            <li class="nav-item" role="presentation">
+              <button class="nav-link active custom-tab" id="income-tab" data-bs-toggle="tab" data-bs-target="#income" type="button" role="tab">By Income</button>
+            </li>
+            <li class="nav-item" role="presentation">
+              <button class="nav-link custom-tab" id="demographics-tab" data-bs-toggle="tab" data-bs-target="#demographics" type="button" role="tab">By Demographics</button>
+            </li>
+            <li class="nav-item" role="presentation">
+              <button class="nav-link custom-tab" id="family-tab" data-bs-toggle="tab" data-bs-target="#family" type="button" role="tab">By Family Size</button>
+            </li>
+          </ul>
+          <!-- Slider for Income Level -->
+          <div class="d-flex align-items-center gap-3">
+            <label for="incomeRange" class="form-label fw-bold mb-0" style="min-width: 120px;">Income Level</label>
+            <div class="slider-wrapper">
+              <div class="slider-track">
+                <div class="slider-segment"></div>
+                <div class="slider-segment"></div>
+                <div class="slider-segment"></div>
+                <div class="slider-segment"></div>
+                <div class="slider-segment"></div>
+              </div>
+              <input
+                id="incomeRange"
+                type="range"
+                min="0"
+                max="5"
+                step="1"
+                on:input={onIncomeChange}
+                class="form-range custom-slider"
+              />
+              <div class="slider-labels">
+                <span>&lt;25k</span>
+                <span>25k–50k</span>
+                <span>50k–100k</span>
+                <span>100k–150k</span>
+                <span>150k–200k</span>
+                <span>&gt;200k</span>
+              </div>
+            </div>
+          </div>          
+        </div>
+
+        <div class="tab-content">
+          <!-- By Income Tab -->
+          <div class="tab-pane fade show active" id="income" role="tabpanel">
+            <div class="d-flex justify-content-center">
+              <div class="box" style="height: 500px; width: 100%; max-width: 1200px; background-color: #e9e3d9;">
+                <div id="income-map" style="height: 100%; width: 100%;"></div>
+              </div>
+            </div>
+          </div>          
+
+          <!-- By Demographics Tab -->
+          <div class="tab-pane fade" id="demographics" role="tabpanel">
+            <div class="row g-4 justify-content-center">
+              <div class="col-md-4">
+                <div class="box">
+                  <label for="demographicSelect" class="form-label fw-bold">Demographic</label>
+                  <select id="demographicSelect" class="form-select">
+                    <option>All</option>
+                    <option>Black</option>
+                    <option>Hispanic</option>
+                    <option>Asian</option>
+                  </select>
+                </div>
+              </div>
+              <div class="col-md-8">
+                <div class="box" style="height: 500px; background-color: #e9e3d9;">
+                  <div class="d-flex justify-content-center align-items-center h-100 text-dark">
+                    [ Demographic-Based Interactive Map ]
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
 
-          <!-- Family Size Filter Group -->
-          <div class="filter-group">
-            <h4>Family Size</h4>
-            <p class="hint">Choose the bracket that matches your family size.</p>
-            <button on:click={() => selectFamily('All Family Sizes')}
-                    class:active={selectedFamily === 'All Family Sizes'}>
-              All Family Sizes
-            </button>
-            <button on:click={() => selectFamily('1-person')}
-                    class:active={selectedFamily === '1-person'}>
-              1-person
-            </button>
-            <button on:click={() => selectFamily('2-person')}
-                    class:active={selectedFamily === '2-person'}>
-              2-person
-            </button>
-            <button on:click={() => selectFamily('3-person')}
-                    class:active={selectedFamily === '3-person'}>
-              3-person
-            </button>
-            <button on:click={() => selectFamily('4-person')}
-                    class:active={selectedFamily === '4-person'}>
-              4-person
-            </button>
-            <button on:click={() => selectFamily('5-person')}
-                    class:active={selectedFamily === '5-person'}>
-              5-person
-            </button>
-            <button on:click={() => selectFamily('6-person')}
-                    class:active={selectedFamily === '6-person'}>
-              6-person
-            </button>
-            <button on:click={() => selectFamily('7+ persons')}
-                    class:active={selectedFamily === '7+ persons'}>
-              7+ persons
-            </button>
-          </div>
-
-          <!-- Reset Button -->
-          <div class="filter-group">
-            <button on:click={resetFilters} class="reset-button">
-              Reset All Filters
-            </button>
+          <!-- By Family Size Tab -->
+          <div class="tab-pane fade" id="family" role="tabpanel">
+            <div class="row g-4 justify-content-center">
+              <div class="col-md-4">
+                <div class="box">
+                  <label for="familySize" class="form-label fw-bold">Family Size</label>
+                  <select id="familySize" class="form-select">
+                    <option>1 person</option>
+                    <option>2 people</option>
+                    <option>3+</option>
+                  </select>
+                </div>
+              </div>
+              <div class="col-md-8">
+                <div class="box" style="height: 500px; background-color: #e9e3d9;">
+                  <div class="d-flex justify-content-center align-items-center h-100 text-dark">
+                    [ Family Size-Based Interactive Map ]
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
-      </div>
-
-      <!-- Map Container with Legend and Recenter Button -->
-      <div class="map-container">
-        <div id="map"></div>
-        <button class="recenter-button" on:click={recenterMap}>Recenter</button>
-        <div class="legend">
-          <h4>Legend</h4>
-          <div class="legend-item">
-            <span class="color-box default"></span>
-            <span>Not Suitable Neighborhood</span>
-          </div>
-          <div class="legend-item">
-            <span class="color-box highlighted"></span>
-            <span>Recommended Neighborhood</span>
-          </div>
+        <div class="analysis-box">
+        [ What do you notice about access, demographics, and income distribution? ]
         </div>
-      </div>
-    </div>
-  </section>
+    </section>
 
-  <!-- Footer placed at the end of the page -->
-  <footer class="footer">
-    <p>© 2025 Blueprint Boston.</p>
-  </footer>
-</div>
+    <section id="zoning">
+        <div class="section-header">Zoning Compliance & Demographics</div>
+        <div class="box text-center" style="height: 400px;">
+        [ Choropleth Map Placeholder ]
+        </div>
+        <div class="analysis-box">
+        [ Are non-compliant zones overlapping with certain racial or income groups? ]
+        </div>
+    </section>
+  
+    <section id="development" class="alt-bg">
+        <div class="section-header">New Housing Development</div>
+        <div class="box text-center" style="height: 400px;">
+        [ New Development Map Placeholder ]
+        </div>
+        <div class="analysis-box">
+        [ What policies have worked? Where are gaps? Tie in back to zoning reform goals. ]
+        </div>
+    </section>
+</main>
+  
+<footer>
+    Blueprint Boston | Sophie Suo, Cynthia Qi, Tiffany Wang | Spring 2025
+</footer>
 
 <style>
-  @import 'https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.css';
+  @import url('https://fonts.googleapis.com/css2?family=Lato:wght@400;700&family=Montserrat:wght@700&display=swap');
 
-  .page {
-    font-family: sans-serif;
-    background: #f6f0e8;
-    color: #3e3e3e;
-    margin: 0;
-    padding: 0;
-    display: flex;
-    flex-direction: column;
-    min-height: 100vh;
+  :root {
+    --primary-warm: #e98b6d;   /* Soft coral */
+    --secondary-warm: #f3ebe3; /* Sand Beige */
+    --accent-deep: #a74a44;    /* Brick Red */
+    --neutral-main: #7c6757;   /* Deep Taupe */
+    --neutral-light: #dad2c9;  /* Soft Gray */
+    --accent-hope: #a6b9a3;    /* Sage Green */
   }
-  .intro {
-    background: #d8a59c;
-    padding: 3rem 1rem;
-    text-align: center;
-    color: white;
+
+  main {
+      font-family: 'Lato', sans-serif;
+      background-color: #fdf8f2;
+      color: var(--neutral-main);
+      margin: 0;
+      padding: 0;
+      scroll-behavior: smooth;
   }
-  .intro h1 {
-    font-size: 2.5rem;
-    margin-bottom: 1rem;
+
+  .nav-dots {
+      position: fixed;
+      top: 50%;
+      left: 2rem;
+      transform: translateY(-50%);
+      z-index: 1000;
   }
-  .intro p {
-    max-width: 600px;
-    margin: 0 auto;
+
+  .nav-dots a {
+      display: block;
+      margin: 1rem 0;
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      background-color: #333;
+      transition: background-color 0.3s;
+  }
+
+  .nav-dots a:hover,
+  .nav-dots a.active {
+      background-color: var(--accent-hope);
+  }
+
+  section {
+      padding: 6rem 4rem;
+      border-bottom: 1px solid #e0d6c6;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+  }
+
+  .section-header {
+      font-family: 'Montserrat', sans-serif;
+      font-size: 2.5rem;
+      font-weight: 700;
+      text-align: center;
+      margin-bottom: 2rem;
+  }
+
+  .box {
+      background-color: #ffffff;
+      border: 1px solid #ddd4c5;
+      padding: 2rem;
+      margin-bottom: 2rem;
+  }
+
+  .analysis-box {
+      padding-left: 1rem;
+      font-style: italic;
+      color: var(--neutral2);
+      border-left: 4px solid var(--accent-hope);
+      background: #f6fdf6;
+  }
+
+  footer {
+      background-color: var(--accent-hope);
+      color: white;
+      text-align: center;
+      padding: 2rem 1rem;
+      font-size: 0.9rem;
+  }
+
+  .alt-bg {
+    background-color: var(--secondary-warm); 
+  }
+
+  .section-intro {
     font-size: 1.2rem;
-  }
-  .map-section {
-    padding: 2rem 1rem;
-    background: white;
-    flex-grow: 1;
-  }
-  .map-and-filters {
-    display: flex;
-    flex-wrap: nowrap;
-    gap: 2rem;
-    justify-content: center;
-    align-items: stretch;
-    max-width: 1200px;
-    margin: 0 auto;
-  }
-  /* Sidebar: contains the filters */
-  .sidebar {
-    display: flex;
-    flex-direction: column;
-    justify-content: flex-start;
-    min-width: 250px;
-  }
-  .filters-container {
-    display: flex;
-    flex-direction: column;
-    gap: 1rem;
-  }
-  .filter-group {
-    width: 100%;
-  }
-  .filter-group h4 {
-    font-size: 0.9rem;
-    text-transform: uppercase;
-    color: #555;
-    margin-bottom: 0.5rem;
-  }
-  .filter-group button {
-    display: block;
-    width: 100%;
-    text-align: left;
-    background: #e0e0e0;
-    color: #333;
-    border: none;
-    padding: 0.6rem 0.8rem;
-    margin: 0.25rem 0;
-    border-radius: 4px;
-    font-family: monospace;
-    cursor: pointer;
-    transition: all 0.2s ease;
-  }
-  .filter-group button:hover {
-    background: #ccc;
-    transform: translateY(-2px);
-  }
-  .filter-group button:active {
-    background: #d8a59c;
-    color: white;
-  }
-  .filter-group button.active {
-    background: #d8a59c;
-    color: white;
-  }
-  .reset-button {
-    background: #ff6347;
-    color: white;
-    font-weight: bold;
-  }
-  .map-container {
-    background: #d6c7b3;
-    width: 100%;
-    max-width: 800px;
-    height: 600px;
-    position: relative;
-    border-radius: 10px;
-    overflow: hidden;
-  }
-  #map {
-    width: 100%;
-    height: 100%;
-  }
-  .legend {
-    position: absolute;
-    bottom: 10px;
-    left: 10px;
-    background: rgba(255, 255, 255, 0.9);
-    padding: 0.5rem;
-    border-radius: 4px;
-    font-size: 0.8rem;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.3);
-  }
-  .legend h4 {
-    margin: 0 0 0.5rem 0;
-  }
-  .legend-item {
-    display: flex;
-    align-items: center;
-    margin-bottom: 0.3rem;
-  }
-  .legend-item:last-child {
-    margin-bottom: 0;
-  }
-  .color-box {
-    width: 20px;
-    height: 20px;
-    margin-right: 0.5rem;
-    border: 1px solid #ccc;
-  }
-  .color-box.default {
-    background-color: #ffccb3;
-  }
-  .color-box.highlighted {
-    background-color: #ff7f50;
-  }
-  .recenter-button {
-    position: absolute;
-    top: 10px;
-    left: 10px;
-    background: #d8a59c;
-    color: white;
-    border: none;
-    padding: 0.5rem 1rem;
-    border-radius: 4px;
-    cursor: pointer;
-    font-size: 0.9rem;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.3);
-    transition: background 0.2s ease;
-  }
-  .recenter-button:hover {
-    background: #bfa9a0;
-  }
-  .footer {
-    background: #bfa9a0;
     text-align: center;
-    padding: 1rem;
-    color: white;
-    font-size: 0.9rem;
+    max-width: 700px;
+    margin: 1rem auto 2rem auto;
+    color: var(--neutral-main);
   }
-  .hint { font-size: 0.75rem; color: #666; margin-bottom: 0.5rem; }
+
+  .custom-tab.active {
+    background-color: var(--accent-hope);
+    color: white;
+    border-color: var(--accent-hope) var(--accent-hope) white;
+  }
+
+  .slider-wrapper {
+    position: relative;
+    width: 450px;
+  }
+
+  .slider-track {
+    position: absolute;
+    top: 50%;
+    left: 0;
+    right: 0;
+    height: 6px;
+    background-color: var(--accent-hope);
+    border-radius: 3px;
+    transform: translateY(-50%);
+    z-index: 1;
+  }
+
+  .slider-segment {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    background-color: var(--neutral-main);
+  }
+
+  /* Position each segment evenly */
+  .slider-segment:nth-child(1) { left: 21%; }
+  .slider-segment:nth-child(2) { left: 40%; }
+  .slider-segment:nth-child(3) { left: 59.5%; }
+  .slider-segment:nth-child(4) { left: 79%; }
+  .slider-segment:nth-child(5) { left: 98%; }
+  /* Slider itself */
+  .custom-slider {
+      position: relative;
+      z-index: 2;
+      background: transparent;
+      height: 0px; /* <<< lower this! */
+      width: 100%;
+      margin: 0;
+      pointer-events: all;
+  }
+
+  /* Thumb */
+  .custom-slider::-webkit-slider-thumb {
+      background-color: var(--accent-hope);
+      border: none;
+      width: 16px;   /* <<< match size better */
+      height: 16px;
+      margin-top: -6px; /* <<< center it vertically over the track */
+  }
+
+  .custom-slider::-moz-range-thumb {
+      background-color: var(--accent-hope);
+      border: none;
+      width: 16px;
+      height: 16px;
+  }
+
+  /* Labels below */
+  .slider-labels {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 8px;
+    font-size: 0.8rem;
+    color: var(--neutral-main);
+  }
+
+  /* Tabs - fix inactive color */
+  .nav-tabs .nav-link {
+    color: var(--neutral-main); /* deep taupe color for inactive tabs */
+  }
+
+  /* Active tab stays coral */
+  .nav-tabs .nav-link.active {
+    background-color: var(--accent-hope);
+    color: white;
+    border-color: var(--accent-hope) var(--accent-hope) white;
+  }
 
 </style>
+
+<div class="nav-dots">
+  <a href="#hero" aria-label="Go to Hero Section"></a>
+  <a href="#history" aria-label="Go to History Section"></a>
+  <a href="#price" aria-label="Go to Price Section"></a>
+  <a href="#availability" aria-label="Go to Availability Section"></a>
+  <a href="#map" aria-label="Go to Map Section"></a>
+  <a href="#zoning" aria-label="Go to Zoning Section"></a>
+  <a href="#development" aria-label="Go to Dev Section"></a>
+</div>
