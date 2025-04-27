@@ -5,13 +5,15 @@
 
   const MAPBOX_TOKEN = 'pk.eyJ1Ijoic3N1byIsImEiOiJjbTk5Z2NnNWIwNDh5MnJwdjFwZGhnZmU2In0.DlLRt3C3qdBGprZR4SvRVQ';
 
-  let longitude = -71.0589;
-  let latitude = 42.3601;
-  let zoom = 9;
+  let longitude = -71.1;
+  let latitude = 42.38;
+  let zoom = 8.5;
 
   let zoningMap;
   let singleFamilyGeo;
-  let selectedIncomeLevel = 0; // slider value (0-5)
+  let selectedIncomeLevel = 3; // slider value (0-5)
+  let singleFamilyCsvData = new Map();
+  let activeTab = 'income'; // default tab
 
   // Precomputed cache
   let incomeCache = new Map();
@@ -28,7 +30,7 @@
 
   async function loadData() {
     const singleFamilyCsv = await d3.csv('/single_family_zoning/housing_sf_other_w_census.csv');
-    singleFamilyGeo = await d3.json('/single_family_zoning/housing_sf_other_w_census_reprojected.json');
+    singleFamilyGeo = await fetch('/single_family_zoning/housing_sf_other_w_census_reprojected.json').then(res => res.json());
 
     // Build CSV map
     singleFamilyCsvData = new Map();
@@ -54,6 +56,8 @@
         incomeCache.set(parseInt(fid), [0, 0, 0, 0, 0, 0]);
       }
     });
+
+    console.log("Income Cache: ", incomeCache);
   }
 
 
@@ -61,12 +65,13 @@
     mapboxgl.accessToken = MAPBOX_TOKEN;
     zoningMap = new mapboxgl.Map({
       container: 'income-map', // Make sure your HTML map container ID matches
-      style: 'mapbox://styles/mapbox/streets-v12',
+      style: 'mapbox://styles/mapbox/light-v11',
       center: [longitude, latitude],
-      zoom: zoom
+      zoom: zoom,
+      minZoom: 8.5,
+      attributionControl: true,
+      interactive: true
     });
-
-    zoningMap.addControl(new mapboxgl.NavigationControl(), 'top-right');
 
     zoningMap.on('load', () => {
       updateIncomeLayer(); // Draw initial map
@@ -76,6 +81,9 @@
   function updateIncomeLayer() {
     if (zoningMap.getLayer('income-layer')) {
       zoningMap.removeLayer('income-layer');
+    }
+    if (zoningMap.getLayer('income-highlight')) {
+      zoningMap.removeLayer('income-highlight');
     }
     if (zoningMap.getSource('income-source')) {
       zoningMap.removeSource('income-source');
@@ -88,6 +96,7 @@
         const percentages = incomeCache.get(fid) || [0, 0, 0, 0, 0, 0];
         return {
           ...f,
+          id: fid,
           properties: {
             ...f.properties,
             income_percentage: percentages[selectedIncomeLevel]
@@ -101,6 +110,7 @@
       data: updatedGeojson
     });
 
+    // Main colored fill layer
     zoningMap.addLayer({
       id: 'income-layer',
       type: 'fill',
@@ -110,13 +120,81 @@
           'interpolate',
           ['linear'],
           ['get', 'income_percentage'],
-          0, '#f7fbff',
-          0.1, '#deebf7',
-          0.2, '#c6dbef',
-          0.4, '#6baed6',
-          0.6, '#2171b5'
+          0, '#e0f3db',
+          0.1, '#a8ddb5',
+          0.2, '#7bccc4',
+          0.4, '#43a2ca',
+          0.6, '#0868ac',
+          0.8, '#084081'
         ],
-        'fill-opacity': 0.7
+        'fill-opacity': 1,
+        'fill-outline-color': '#fff'
+      }
+    });
+
+    // Hover outline layer (dark green)
+    zoningMap.addLayer({
+      id: 'income-highlight',
+      type: 'line',
+      source: 'income-source',
+      paint: {
+        'line-color': '#006400', // DARK GREEN color
+        'line-width': [
+          'case',
+          ['boolean', ['feature-state', 'hover'], false],
+          3,
+          0
+        ]
+      }
+    });
+
+    let hoveredFeatureId = null;
+
+    zoningMap.on('mousemove', 'income-layer', (e) => {
+      const feature = e.features[0];
+      const props = feature.properties;
+      const fid = props.fid;
+      const csvRow = singleFamilyCsvData.get(parseInt(fid));
+
+      // Set feature state
+      if (hoveredFeatureId !== null) {
+        zoningMap.setFeatureState(
+          { source: 'income-source', id: hoveredFeatureId },
+          { hover: false }
+        );
+      }
+      hoveredFeatureId = feature.id;
+      zoningMap.setFeatureState(
+        { source: 'income-source', id: hoveredFeatureId },
+        { hover: true }
+      );
+
+      // Update the fixed info box
+      const muniName = props.muni || 'Unknown';
+      const density = (props.income_percentage * 100).toFixed(1) + '%';
+
+      const infoBox = document.getElementById('hover-info');
+      if (infoBox) {
+        infoBox.innerHTML = `
+          <strong>${muniName}</strong><br/>
+          <b>Density:</b> ${density}<br/>
+        `;
+      }
+    });
+
+    zoningMap.on('mouseleave', 'income-layer', () => {
+      if (hoveredFeatureId !== null) {
+        zoningMap.setFeatureState(
+          { source: 'income-source', id: hoveredFeatureId },
+          { hover: false }
+        );
+      }
+      hoveredFeatureId = null;
+
+      // Clear info box
+      const infoBox = document.getElementById('hover-info');
+      if (infoBox) {
+        infoBox.innerHTML = '<i>Hover over a municipality</i>';
       }
     });
   }
@@ -229,8 +307,20 @@
           <!-- By Income Tab -->
           <div class="tab-pane fade show active" id="income" role="tabpanel">
             <div class="d-flex justify-content-center">
-              <div class="box" style="height: 500px; width: 100%; max-width: 1200px; background-color: #e9e3d9;">
-                <div id="income-map" style="height: 100%; width: 100%;"></div>
+              <div class="box" style="height: 600px; width: 100%; max-width: 1200px; background-color: #e9e3d9;">
+                <div id="income-map" style="position: relative; height: 100%; width: 100%;">
+                  <div id="legend">
+                    <div class="legend-gradient"></div>
+                    <div class="legend-labels">
+                      <span>0%</span>
+                      <span>50%</span>
+                      <span>100%</span>
+                    </div>
+                  </div>
+                  <div id="hover-info" class="info-box">
+                    <i>Hover over a municipality</i>
+                  </div>                  
+                </div>                
               </div>
             </div>
           </div>          
@@ -282,9 +372,9 @@
             </div>
           </div>
         </div>
-        <div class="analysis-box">
+        <!-- <div class="analysis-box">
         [ What do you notice about access, demographics, and income distribution? ]
-        </div>
+        </div> -->
     </section>
 
     <section id="zoning">
@@ -491,6 +581,56 @@
     background-color: var(--accent-hope);
     color: white;
     border-color: var(--accent-hope) var(--accent-hope) white;
+  }
+
+  #legend {
+    position: absolute;
+    bottom: 30px;
+    right: 30px;
+    width: 200px;
+    height: 50px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    font-size: 0.8rem;
+  }
+
+  .legend-gradient {
+    width: 100%;
+    height: 12px;
+    background: linear-gradient(
+      to right,
+      #e0f3db 0%,
+      #a8ddb5 10%,
+      #7bccc4 20%,
+      #43a2ca 40%,
+      #0868ac 60%,
+      #084081 80%
+    );
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    margin-bottom: 5px;
+  }
+
+  .legend-labels {
+    width: 100%;
+    display: flex;
+    justify-content: space-between;
+  }
+
+  .info-box {
+    position: absolute;
+    top: 20px;
+    right: 30px;
+    background-color: white;
+    padding: 10px 15px;
+    border: 2px solid #006400; /* dark green border */
+    border-radius: 6px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+    font-size: 0.9rem;
+    color: #333;
+    min-width: 180px;
+    z-index: 10;
   }
 
 </style>
