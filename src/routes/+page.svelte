@@ -693,52 +693,56 @@
   }
 
   function initScatterplot() {
-    const margin = { top: 20, right: 30, bottom: 50, left: 70 };
-    const width = 600 - margin.left - margin.right;
-    const height = 400 - margin.top - margin.bottom;
+    const margin = { top: 40, right: 80, bottom: 60, left: 70 };
+    const containerWidth = document.getElementById("scatterplot").offsetWidth;
+    const width = containerWidth - margin.left - margin.right;
+    const height = 550 - margin.top - margin.bottom;
+
+    // Define the legend size first
+    const legendHeight = 200;
+    const legendWidth = 12;
 
     const svg = d3.select("#scatterplot")
       .append("svg")
-      .attr("width", width + margin.left + margin.right + 100)  // leave room for colorbar
-      .attr("height", height + margin.top + margin.bottom)
+      .attr("viewBox", `0 0 ${width + margin.left + margin.right} ${height + margin.top + margin.bottom}`)
+      .attr("preserveAspectRatio", "xMidYMid meet")
+      .style("font-family", "Lato, sans-serif")
       .append("g")
-      .attr("transform", `translate(${margin.left},${margin.top})`);
+      .attr("transform", `translate(${margin.left},${margin.top})`); // 🛠️ Correct transform here!
 
-    // X Scale
     const x = d3.scaleLinear()
       .domain(d3.extent(scatterData, d => d.avgIncome))
       .nice()
       .range([0, width]);
 
-    // Y Scale
     const y = d3.scaleLinear()
-      .domain(d3.extent(scatterData, d => d.avgUnitPrice))
-      .nice()
+      .domain([0, d3.max(scatterData, d => d.avgUnitPrice) * 1.05]) // little padding
       .range([height, 0]);
 
-    // Compute "years to pay off"
     scatterData.forEach(d => {
       d.yearsToPayoff = d.avgUnitPrice / d.avgIncome;
     });
 
-    // Color scale (similar to your matplotlib one)
-    const color = d3.scaleSequential(d3.interpolateMagma)
-      .domain([0, 70]); // cap at 70 years payoff
+    // 🧠 Fix color scale domain
+    const payoffExtent = d3.extent(scatterData, d => d.yearsToPayoff);
+    const color = d3.scaleSequential(d3.interpolateYlOrRd)
+      .domain([Math.min(payoffExtent[1], 30), 0]); // cap at 30 years for better color spread
 
-    // Axes
+    // X Axis
     svg.append("g")
       .attr("transform", `translate(0,${height})`)
       .call(d3.axisBottom(x).tickFormat(d3.format("$.2s")));
 
     svg.append("text")
       .attr("x", width / 2)
-      .attr("y", height + 40)
+      .attr("y", height + 50)
       .attr("text-anchor", "middle")
       .text("Average Household Yearly Income ($)")
-      .style("font-size", "12px");
+      .style("font-size", "14px");
 
+    // Y Axis
     svg.append("g")
-      .call(d3.axisLeft(y));
+      .call(d3.axisLeft(y).tickFormat(d => d >= 1000000 ? `$${d/1000000}M` : d3.format("$.2s")(d)));
 
     svg.append("text")
       .attr("transform", "rotate(-90)")
@@ -746,7 +750,7 @@
       .attr("y", -50)
       .attr("text-anchor", "middle")
       .text("Average Household Unit Purchase Price ($)")
-      .style("font-size", "12px");
+      .style("font-size", "14px");
 
     // Scatter points
     svg.selectAll("circle")
@@ -755,36 +759,21 @@
       .append("circle")
       .attr("cx", d => x(d.avgIncome))
       .attr("cy", d => y(d.avgUnitPrice))
-      .attr("r", 5)
-      .attr("fill", d => color(Math.min(d.yearsToPayoff, 70)))
-      .attr("opacity", 0.8);
+      .attr("r", 7) // 🌟 Bigger dots
+      .attr("fill", d => color(Math.min(d.yearsToPayoff, 30)))
+      .attr("opacity", 0.85);
 
-    // Add dashed red line for "10 years of income" = affordable line
+    // Dashed Red Line (10-year affordability line)
     svg.append("line")
       .attr("x1", x.range()[0])
-      .attr("y1", y(10 * d3.min(scatterData, d => d.avgIncome)))  // 10×lowest income
+      .attr("y1", y(10 * d3.min(scatterData, d => d.avgIncome)))
       .attr("x2", x.range()[1])
-      .attr("y2", y(10 * d3.max(scatterData, d => d.avgIncome)))  // 10×highest income
+      .attr("y2", y(10 * d3.max(scatterData, d => d.avgIncome)))
       .attr("stroke", "red")
       .attr("stroke-width", 2)
       .attr("stroke-dasharray", "5,5");
 
-    // Legend
-    const legendHeight = 200;
-    const legendWidth = 20;
-
-    const legendSvg = svg.append("g")
-      .attr("transform", `translate(${width + 40},20)`);
-
-    const legendScale = d3.scaleLinear()
-      .domain([70, 0])  // reverse to match vertical gradient
-      .range([0, legendHeight]);
-
-    const legendAxis = d3.axisRight(legendScale)
-      .ticks(6)
-      .tickFormat(d => d);
-
-    // Define a gradient
+    // 📦 Legend
     const defs = svg.append("defs");
 
     const linearGradient = defs.append("linearGradient")
@@ -794,25 +783,29 @@
       .attr("x2", "0%")
       .attr("y2", "0%");
 
-    const legendStops = d3.range(0, 1.01, 0.01);
-    legendStops.forEach(t => {
-      linearGradient.append("stop")
-        .attr("offset", `${t * 100}%`)
-        .attr("stop-color", color(t * 70));
-    });
+    linearGradient.selectAll("stop")
+      .data(d3.range(0, 1.01, 0.01))
+      .enter()
+      .append("stop")
+      .attr("offset", d => `${d*100}%`)
+      .attr("stop-color", d => color(d * 30)); // because domain is [30,0]
 
-    // Draw the color rect
+    const legendSvg = svg.append("g")
+      .attr("transform", `translate(${width + 20},${height/2 - legendHeight/2})`);
+
     legendSvg.append("rect")
       .attr("width", legendWidth)
       .attr("height", legendHeight)
       .style("fill", "url(#legend-gradient)");
 
-    // Draw the axis
-    legendSvg.append("g")
-      .attr("transform", `translate(${legendWidth}, 0)`)
-      .call(legendAxis);
+    const legendScale = d3.scaleLinear()
+      .domain([30, 0]) // top to bottom
+      .range([0, legendHeight]);
 
-    // Legend Label
+    legendSvg.append("g")
+      .attr("transform", `translate(${legendWidth},0)`)
+      .call(d3.axisRight(legendScale).ticks(6));
+
     legendSvg.append("text")
       .attr("x", 0)
       .attr("y", -10)
@@ -823,9 +816,24 @@
 
   onMount(async () => {
     await loadData();
-    initScatterplot();
+    await initScatterplot();
     await initZoningMap();
+
+    // // ✨ Animate the scatterplot when it scrolls into view
+    // const scatterplot = document.getElementById('scatterplot');
+
+    // function onScroll() {
+    //   const rect = scatterplot.getBoundingClientRect();
+    //   if (rect.top < window.innerHeight - 100) { // 100px before fully appearing
+    //     scatterplot.classList.add('scatterplot-animate');
+    //     window.removeEventListener('scroll', onScroll); // Only trigger once
+    //   }
+    // }
+
+    // window.addEventListener('scroll', onScroll);
+    // onScroll(); // in case already visible
   });
+
 </script>
 
 <svelte:head>
@@ -863,15 +871,11 @@
     </section>    
 
     <section id="price" class="alt-bg">
-      <div class="section-header">Income vs Housing Price</div>
-      <div class="box text-center" style="height: 400px;">
-        <div id="scatterplot" style="width: 100%; height: 100%;"></div>
+      <div class="scatterplot-fullwidth">
+        <div class="scatterplot-title">Average Household Income vs Unit Purchase Price</div>
+        <div id="scatterplot"></div> <!-- remove scatterplot-canvas class -->
       </div>
-      
-      <div class="analysis-box">
-      [ What patterns does this graph show? What does it mean for different income levels? ]
-      </div>
-  </section>
+    </section>    
 
     <section id="availability">
         <div class="section-header">Housing Availability Over Time</div>
@@ -1450,6 +1454,52 @@
     margin-top: 2rem;
     text-align: center;
   }
+
+  /* .scatter-box {
+    background: white;
+    border: 1px solid #ddd4c5;
+    border-radius: 12px;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+    padding: 2rem;
+    max-width: 1000px;
+    margin: 0 auto 2rem auto;
+  } */
+
+  .scatterplot-title {
+    font-family: 'Montserrat', sans-serif;
+    font-size: 2rem;
+    font-weight: 700;
+    margin-bottom: 1rem;
+    color: var(--neutral-main);
+  }
+
+  .scatterplot-fullwidth {
+    width: 100%;
+    max-width: 1400px;
+    margin: 0 auto 2rem auto;
+    padding: 2rem;
+    background: white;
+    border: 1px solid #ddd4c5;
+    border-radius: 16px;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+  }
+
+  /* .scatterplot-canvas {
+    width: 100%;
+    height: 600px;
+  }
+
+  .scatterplot-canvas {
+    opacity: 0;
+    transform: translateY(30px);
+    transition: opacity 0.8s ease-out, transform 0.8s ease-out;
+  }
+
+  .scatterplot-canvas.scatterplot-animate {
+    opacity: 1;
+    transform: translateY(0);
+  } */
+
 
 </style>
 
