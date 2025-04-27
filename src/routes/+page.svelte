@@ -68,7 +68,7 @@
     const singleFamilyCsv = await d3.csv('/single_family_zoning/housing_sf_other_w_census.csv');
     singleFamilyGeo = await fetch('/single_family_zoning/housing_sf_other_w_census_reprojected.json').then(res => res.json());
 
-    const unitPriceCsv = await d3.csv('/average_unit_price_by_municipality.csv');
+    const unitPriceCsv = await d3.csv('/scatterplot/average_unit_price_by_municipality.csv');
 
     // Build CSV map
     singleFamilyCsvData = new Map();
@@ -844,14 +844,23 @@
     </section>
 
     <section id="history">
-        <div class="section-header">History of Zoning in Boston</div>
-        <div class="box">
-        <p>[ A paragraph discussing zoning origins, exclusionary practices, impacts on affordability. ]</p>
+      <div class="section-header">History of Zoning in Boston</div>
+    
+      <div class="history-content">
+        <p class="history-text">
+          Zoning laws, which originated in the early 20th century, were initially implemented to regulate land use and promote public health, safety, and welfare. However, over time, these laws evolved to introduce practices that segregated neighborhoods along racial and economic boundaries. In Boston, exclusionary zoning can be traced back to the 1920s, when regulations deliberately limited access to affordable housing for marginalized groups. Practices such as single-family zoning and restrictive building types have had lasting effects, contributing to today’s housing crisis by limiting affordable housing supply, raising costs, and deepening racial and class segregation. Recent efforts, such as Minneapolis' reforms, aim to address these inequities by eliminating exclusionary zoning and encouraging diverse housing types.
+        </p>
+    
+        <div class="history-image-container">
+          <img src="/images/figure1.jpg" alt="Zoning history in Boston" class="history-image" />
+          <div class="image-caption">Figure 1. Early zoning policies shaped Boston’s urban landscape.</div>
         </div>
-        <div class="analysis-box">
-        [ Add your analysis or commentary on zoning history here. ]
-        </div>
-    </section>
+    
+        <p class="history-subtext">
+          These historical patterns continue to influence where affordable housing can be built today, perpetuating inequities rooted in zoning’s original design.
+        </p>
+      </div>
+    </section>    
 
     <section id="price" class="alt-bg">
       <div class="section-header">Income vs Housing Price</div>
@@ -1402,6 +1411,46 @@
     white-space: nowrap;
     transition: all 0.3s;
   }
+
+  .history-content {
+    max-width: 850px;
+    margin: 0 auto;
+    text-align: center;
+  }
+
+  .history-text {
+    font-size: 1.1rem;
+    line-height: 1.7;
+    color: var(--neutral-main);
+    margin-bottom: 2rem;
+    text-align: justify;
+  }
+
+  .history-image-container {
+    margin-bottom: 2rem;
+  }
+
+  .history-image {
+    max-width: 100%;
+    height: auto;
+    border-radius: 12px;
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.12);
+  }
+
+  .image-caption {
+    margin-top: 0.5rem;
+    font-size: 0.9rem;
+    color: var(--neutral-main);
+    font-style: italic;
+  }
+
+  .history-subtext {
+    font-size: 1rem;
+    color: var(--neutral-main);
+    margin-top: 2rem;
+    text-align: center;
+  }
+
 </style>
 
 <div class="nav-dots">
