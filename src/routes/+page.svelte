@@ -1049,10 +1049,10 @@
         <div style="margin-bottom: 20px; text-align: center;">
           <select id="searchSelect" class="form-select" style="width: 300px;" on:change={onSearch}>
             <option value="">Select Municipality...</option>
-            {#each scatterData as d}
+            {#each [...scatterData].sort((a, b) => a.muni.localeCompare(b.muni)) as d}
               <option value={d.muni}>{d.muni}</option>
             {/each}
-          </select>          
+          </select>                 
         </div>
     
         <div id="scatterplot"></div> <!-- scatterplot container -->
