@@ -725,8 +725,8 @@
 
     // 🧠 Fix color scale domain
     const payoffExtent = d3.extent(scatterData, d => d.yearsToPayoff);
-    const color = d3.scaleSequential(d3.interpolateYlOrRd)
-      .domain([Math.min(payoffExtent[1], 30), 0]); // cap at 30 years for better color spread
+    const color = d3.scaleSequential(d3.interpolateGreens)
+      .domain([0, 30]); // ✅ cap at 30 years manually, darker green = worse
 
     // X Axis
     svg.append("g")
@@ -761,6 +761,8 @@
       .attr("cy", d => y(d.avgUnitPrice))
       .attr("r", 7) // 🌟 Bigger dots
       .attr("fill", d => color(Math.min(d.yearsToPayoff, 30)))
+      .attr("stroke", "black")        // 👈 add this line
+      .attr("stroke-width", 0.1)      // 👈 very thin outline
       .attr("opacity", 0.85);
 
     // Create a tooltip div
