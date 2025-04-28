@@ -19,8 +19,14 @@
   let incomeCache = new Map();
   let demoCache = new Map();
 
-   // Scatterplot data
-   let scatterData = [];
+  // Scatterplot data
+  let scatterData = [];
+  let selectedMuni = null;
+  let svg;
+  let tooltip;
+  let x;
+  let y;
+
 
   // Define groups of columns for each income level
   let selectedIncomeLevel = 3; // slider value (0-5)
@@ -198,6 +204,41 @@
 
     console.log('Scatter Data', scatterData);
   }
+
+  function onSearch(event) {
+    const selected = event.target.value.trim();
+    selectedMuni = selected || null;
+
+    d3.select("#scatterplot svg g").selectAll("circle")
+      .attr("r", d => (d.muni === selectedMuni ? 11 : 7))
+      .attr("stroke-width", d => (d.muni === selectedMuni ? 1.5 : 0.1));
+
+    if (selectedMuni) {
+      const match = scatterData.find(d => d.muni === selectedMuni);
+
+      tooltip.transition().duration(200).style("opacity", 0.9);
+      tooltip.html(`
+        <strong>${match.muni}</strong><br/>
+        <b>Avg Income:</b> ${formatMillions(match.avgIncome)}<br/>
+        <b>Avg Unit Price:</b> ${formatMillions(match.avgUnitPrice)}<br/>
+        <b>Years to Pay Off:</b> ${match.yearsToPayoff.toFixed(1)}
+      `);
+
+      const svgElement = document.querySelector("#scatterplot svg");
+      const pt = svgElement.createSVGPoint();
+      pt.x = x(match.avgIncome);
+      pt.y = y(match.avgUnitPrice);
+      const screenPoint = pt.matrixTransform(svgElement.getScreenCTM());
+      const scatterRect = svgElement.getBoundingClientRect();  // ✨ ADD THIS
+
+      tooltip
+        .style("left", (screenPoint.x - scatterRect.left + 80) + "px")  // ✨ FIX
+        .style("top", (screenPoint.y - scatterRect.top + 30) + "px");    // ✨ FIX
+    } else {
+      tooltip.transition().duration(300).style("opacity", 0);
+    }
+  }
+
 
   async function initZoningMap() {
     mapboxgl.accessToken = MAPBOX_TOKEN;
@@ -723,6 +764,15 @@
     updateFamilyLayer();
   }
 
+  // Helper function to format millions nicely
+  function formatMillions(value) {
+    if (value >= 1000000) {
+      return `$${(value / 1000000).toFixed(2)}M`;
+    } else {
+      return `$${value.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
+    }
+  }
+
   function initScatterplot() {
     const margin = { top: 40, right: 80, bottom: 60, left: 70 };
     const containerWidth = document.getElementById("scatterplot").offsetWidth;
@@ -733,7 +783,7 @@
     const legendHeight = 400;
     const legendWidth = 40;
 
-    const svg = d3.select("#scatterplot")
+    svg = d3.select("#scatterplot")
       .append("svg")
       .attr("viewBox", `0 0 ${width + margin.left + margin.right} ${height + margin.top + margin.bottom}`)
       .attr("preserveAspectRatio", "xMidYMid meet")
@@ -741,18 +791,23 @@
       .append("g")
       .attr("transform", `translate(${margin.left},${margin.top})`); // 🛠️ Correct transform here!
 
-    const x = d3.scaleLinear()
+    x = d3.scaleLinear()
       .domain(d3.extent(scatterData, d => d.avgIncome))
       .nice()
       .range([0, width]);
 
-    const y = d3.scaleLinear()
+    y = d3.scaleLinear()
       .domain([0, d3.max(scatterData, d => d.avgUnitPrice) * 1.05]) // little padding
       .range([height, 0]);
 
-    scatterData.forEach(d => {
-      d.yearsToPayoff = d.avgUnitPrice / d.avgIncome;
-    });
+      scatterData.forEach(d => {
+        if (d.avgIncome && d.avgUnitPrice) {
+          d.yearsToPayoff = d.avgUnitPrice / d.avgIncome;
+        } else {
+          d.yearsToPayoff = null; // ❗ set clearly if missing
+        }
+      });
+
 
     // 🧠 Fix color scale domain
     const payoffExtent = d3.extent(scatterData, d => d.yearsToPayoff);
@@ -791,13 +846,13 @@
       .attr("cx", d => x(d.avgIncome))
       .attr("cy", d => y(d.avgUnitPrice))
       .attr("r", 7) // 🌟 Bigger dots
-      .attr("fill", d => color(Math.min(d.yearsToPayoff, 30)))
+      .attr("fill", d => (d.yearsToPayoff !== null ? color(Math.min(d.yearsToPayoff, 30)) : "#ccc")) 
       .attr("stroke", "black")        // 👈 add this line
       .attr("stroke-width", 0.1)      // 👈 very thin outline
       .attr("opacity", 0.85);
 
     // Create a tooltip div
-    const tooltip = d3.select("#scatterplot")
+    tooltip = d3.select("#scatterplot")
       .append("div")
       .style("position", "absolute")
       .style("background", "white")
@@ -807,15 +862,6 @@
       .style("pointer-events", "none")
       .style("font-size", "12px")
       .style("opacity", 0);
-
-    // Helper function to format millions nicely
-    function formatMillions(value) {
-      if (value >= 1000000) {
-        return `$${(value / 1000000).toFixed(2)}M`;
-      } else {
-        return `$${value.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
-      }
-    }
 
     // Animate tooltip when mouseover circle
     svg.selectAll("circle")
@@ -988,9 +1034,20 @@
       <div class="scatterplot-fullwidth">
         <div class="scatterplot-title">Average Household Income vs Unit Purchase Price</div>
         <div class="scatterplot-subtitle">Hover over each dot to see which municipality it represents.</div>
-        <div id="scatterplot"></div> <!-- remove scatterplot-canvas class -->
+    
+        <!-- ✅ ADD SEARCH INPUT HERE -->
+        <div style="margin-bottom: 20px; text-align: center;">
+          <select id="searchSelect" class="form-select" style="width: 300px;" on:change={onSearch}>
+            <option value="">Select Municipality...</option>
+            {#each scatterData as d}
+              <option value={d.muni}>{d.muni}</option>
+            {/each}
+          </select>          
+        </div>
+    
+        <div id="scatterplot"></div> <!-- scatterplot container -->
       </div>
-    </section>    
+    </section>      
 
     <section id="availability">
         <div class="section-header">Housing Availability Over Time</div>
@@ -1620,6 +1677,11 @@
     opacity: 1;
     transform: translateY(0);
   } */
+
+  #scatterplot {
+    position: relative;
+  }
+
 
 
 </style>
