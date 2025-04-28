@@ -1068,7 +1068,7 @@
 </svelte:head>
 
 <main>
-  <section id="hero" style="
+  <section id="home" style="
   padding: 120px 20px;
   text-align: center;
   background: linear-gradient(135deg, #f9f4ef 0%, #e8e3dc 100%);
@@ -1163,11 +1163,11 @@
         transform: translateY(0);
       }
     }
-    #hero a:hover {
+    #home a:hover {
       transform: translateY(-2px);
       box-shadow: 0 6px 12px rgba(0,0,0,0.1);
     }
-    #hero a:hover span:last-child {
+    #home a:hover span:last-child {
       width: 100%;
     }
   </style>
@@ -1596,7 +1596,33 @@
       border-radius: 50%;
       background-color: #333;
       transition: background-color 0.3s;
+      position: relative;
   }
+
+
+  /* Tooltip styling */
+  .nav-dots a::after {
+    content: attr(data-tooltip);
+    position: absolute;
+    left: 24px;
+    top: 50%;
+    transform: translateY(-50%);
+    background: rgba(60, 60, 60, 0.85);
+    color: white;
+    padding: 5px 8px;
+    font-size: 0.8rem;
+    border-radius: 4px;
+    white-space: nowrap;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.3s, transform 0.3s;
+  }
+
+/* Show tooltip on hover */
+.nav-dots a:hover::after {
+  opacity: 1;
+  transform: translateY(-50%) translateX(5px);
+}
 
   .nav-dots a:hover,
   .nav-dots a.active {
@@ -1977,11 +2003,11 @@
 </style>
 
 <div class="nav-dots">
-  <a href="#hero" aria-label="Go to Hero Section"></a>
-  <a href="#history-intro" aria-label="Go to History Section"></a>
-  <a href="#price" aria-label="Go to Price Section"></a>
-  <a href="#availability" aria-label="Go to Availability Section"></a>
-  <a href="#map" aria-label="Go to Map Section"></a>
-  <!-- <a href="#zoning" aria-label="Go to Zoning Section"></a> -->
-  <a href="#development" aria-label="Go to Dev Section"></a>
+  <a href="#home" data-tooltip="Home"></a>
+  <a href="#history-intro" data-tooltip="History"></a>
+  <a href="#key-takeaways" data-tooltip="Key Takeaways"></a>
+  <a href="#price" data-tooltip="Affordability"></a>
+  <a href="#timeline" data-tooltip="Timeline"></a>
+  <a href="#map" data-tooltip="Explorer"></a>
+  <a href="#development" data-tooltip="Development"></a>
 </div>
