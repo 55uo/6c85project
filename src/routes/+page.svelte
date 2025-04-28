@@ -865,24 +865,28 @@
 
     // Animate tooltip when mouseover circle
     svg.selectAll("circle")
-      .on("mouseover", (event, d) => {
-        tooltip.transition().duration(200).style("opacity", 0.9);
-        tooltip.html(`
-          <strong>${d.muni}</strong><br/>
-          <b>Avg Income:</b> ${formatMillions(d.avgIncome)}<br/>
-          <b>Avg Unit Price:</b> ${formatMillions(d.avgUnitPrice)}<br/>
-          <b>Years to Pay Off:</b> ${d.yearsToPayoff.toFixed(1)}
-        `)
-          .style("left", (event.pageX + 10) + "px")
-          .style("top", (event.pageY - 20) + "px");
-      })
-      .on("mousemove", (event) => {
-        tooltip.style("left", (event.pageX + 10) + "px")
-              .style("top", (event.pageY - 20) + "px");
-      })
-      .on("mouseout", () => {
-        tooltip.transition().duration(300).style("opacity", 0);
-      });
+    .on("mouseover", (event, d) => {
+      const scatterplotRect = document.getElementById('scatterplot').getBoundingClientRect();
+
+      tooltip.transition().duration(200).style("opacity", 0.9);
+      tooltip.html(`
+        <strong>${d.muni}</strong><br/>
+        <b>Avg Income:</b> ${formatMillions(d.avgIncome)}<br/>
+        <b>Avg Unit Price:</b> ${formatMillions(d.avgUnitPrice)}<br/>
+        <b>Years to Pay Off:</b> ${d.yearsToPayoff.toFixed(1)}
+      `)
+        .style("left", (event.clientX - scatterplotRect.left + 10) + "px")
+        .style("top", (event.clientY - scatterplotRect.top - 20) + "px");
+    })
+    .on("mousemove", (event) => {
+      const scatterplotRect = document.getElementById('scatterplot').getBoundingClientRect();
+
+      tooltip.style("left", (event.clientX - scatterplotRect.left + 10) + "px")
+            .style("top", (event.clientY - scatterplotRect.top - 20) + "px");
+    })
+    .on("mouseout", () => {
+      tooltip.transition().duration(300).style("opacity", 0);
+    });
 
 
     // Dashed Red Line (10-year affordability line)
