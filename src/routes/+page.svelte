@@ -763,6 +763,49 @@
       .attr("fill", d => color(Math.min(d.yearsToPayoff, 30)))
       .attr("opacity", 0.85);
 
+    // Create a tooltip div
+    const tooltip = d3.select("#scatterplot")
+      .append("div")
+      .style("position", "absolute")
+      .style("background", "white")
+      .style("padding", "8px")
+      .style("border", "1px solid #ccc")
+      .style("border-radius", "6px")
+      .style("pointer-events", "none")
+      .style("font-size", "12px")
+      .style("opacity", 0);
+
+    // Helper function to format millions nicely
+    function formatMillions(value) {
+      if (value >= 1000000) {
+        return `$${(value / 1000000).toFixed(2)}M`;
+      } else {
+        return `$${value.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
+      }
+    }
+
+    // Animate tooltip when mouseover circle
+    svg.selectAll("circle")
+      .on("mouseover", (event, d) => {
+        tooltip.transition().duration(200).style("opacity", 0.9);
+        tooltip.html(`
+          <strong>${d.muni}</strong><br/>
+          <b>Avg Income:</b> ${formatMillions(d.avgIncome)}<br/>
+          <b>Avg Unit Price:</b> ${formatMillions(d.avgUnitPrice)}<br/>
+          <b>Years to Pay Off:</b> ${d.yearsToPayoff.toFixed(1)}
+        `)
+          .style("left", (event.pageX + 10) + "px")
+          .style("top", (event.pageY - 20) + "px");
+      })
+      .on("mousemove", (event) => {
+        tooltip.style("left", (event.pageX + 10) + "px")
+              .style("top", (event.pageY - 20) + "px");
+      })
+      .on("mouseout", () => {
+        tooltip.transition().duration(300).style("opacity", 0);
+      });
+
+
     // Dashed Red Line (10-year affordability line)
     svg.append("line")
       .attr("x1", x.range()[0])
@@ -772,6 +815,44 @@
       .attr("stroke", "red")
       .attr("stroke-width", 2)
       .attr("stroke-dasharray", "5,5");
+
+    // Add a group (g) for the red dashed line legend
+    const lineLegend = svg.append("g")
+      .attr("transform", `translate(${width - 220}, 20)`); // move to top right corner nicely
+
+    // Draw a red dashed sample line inside
+    lineLegend.append("line")
+      .attr("x1", 0)
+      .attr("y1", 10)
+      .attr("x2", 40)
+      .attr("y2", 10)
+      .attr("stroke", "red")
+      .attr("stroke-width", 2)
+      .attr("stroke-dasharray", "5,5");
+
+    // Text next to it
+    lineLegend.append("text")
+      .attr("x", 50)
+      .attr("y", 15)
+      .text("Units purchasable with 10 years income")
+      .style("font-size", "12px")
+      .style("alignment-baseline", "middle")
+      .attr("fill", "#555");
+
+    // Surround the legend group with a rectangle
+    const legendBox = lineLegend.node().getBBox();
+
+    lineLegend.insert("rect", ":first-child") // insert the box behind everything
+      .attr("x", legendBox.x - 10)
+      .attr("y", legendBox.y - 5)
+      .attr("width", legendBox.width + 20)
+      .attr("height", legendBox.height + 10)
+      .attr("rx", 6) // rounded corners
+      .attr("ry", 6)
+      .attr("fill", "white")
+      .attr("stroke", "#ccc")
+      .attr("stroke-width", 1.5);
+
 
     // 📦 Legend
     const defs = svg.append("defs");
@@ -873,6 +954,7 @@
     <section id="price" class="alt-bg">
       <div class="scatterplot-fullwidth">
         <div class="scatterplot-title">Average Household Income vs Unit Purchase Price</div>
+        <div class="scatterplot-subtitle">Hover over each dot to see which municipality it represents.</div>
         <div id="scatterplot"></div> <!-- remove scatterplot-canvas class -->
       </div>
     </section>    
@@ -1471,6 +1553,12 @@
     font-weight: 700;
     margin-bottom: 1rem;
     color: var(--neutral-main);
+  }
+
+  .scatterplot-subtitle {
+    font-size: 1.2rem;
+    color: var(--neutral-main);
+    margin-bottom: 1rem;
   }
 
   .scatterplot-fullwidth {
