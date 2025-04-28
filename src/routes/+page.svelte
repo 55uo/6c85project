@@ -209,9 +209,12 @@
     const selected = event.target.value.trim();
     selectedMuni = selected || null;
 
-    d3.select("#scatterplot svg g").selectAll("circle")
+    const circles = d3.select("#scatterplot svg g").selectAll("circle");
+
+    circles
       .attr("r", d => (d.muni === selectedMuni ? 11 : 7))
-      .attr("stroke-width", d => (d.muni === selectedMuni ? 1.5 : 0.1));
+      .attr("stroke-width", d => (d.muni === selectedMuni ? 1.5 : 0.1))
+      .attr("opacity", d => (d.muni === selectedMuni ? 1 : 0.85));
 
     if (selectedMuni) {
       const match = scatterData.find(d => d.muni === selectedMuni);
@@ -229,11 +232,14 @@
       pt.x = x(match.avgIncome);
       pt.y = y(match.avgUnitPrice);
       const screenPoint = pt.matrixTransform(svgElement.getScreenCTM());
-      const scatterRect = svgElement.getBoundingClientRect();  // ✨ ADD THIS
+      const scatterRect = svgElement.getBoundingClientRect();
 
       tooltip
-        .style("left", (screenPoint.x - scatterRect.left + 80) + "px")  // ✨ FIX
-        .style("top", (screenPoint.y - scatterRect.top + 30) + "px");    // ✨ FIX
+        .style("left", (screenPoint.x - scatterRect.left + 80) + "px")
+        .style("top", (screenPoint.y - scatterRect.top + 30) + "px");
+
+      // 🛠️ MOST IMPORTANT PART: move the selected circle to the front
+      circles.filter(d => d.muni === selectedMuni).raise();
     } else {
       tooltip.transition().duration(300).style("opacity", 0);
     }
