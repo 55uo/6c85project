@@ -77,10 +77,10 @@
 
   async function loadData() {
     // Load CSV and GeoJSON data
-    const singleFamilyCsv = await d3.csv('/single_family_zoning/housing_sf_other_w_census.csv');
-    singleFamilyGeo = await fetch('/single_family_zoning/housing_sf_other_w_census_reprojected.json').then(res => res.json());
-    const unitPriceCsv = await d3.csv('/scatterplot/average_unit_price_by_municipality.csv');
-    const yearMuniAcc = await fetch('/housing_timeline/year_municipality_accumulation_filtered.json').then(res => res.json());
+    const singleFamilyCsv = await d3.csv(import.meta.env.BASE_URL + 'single_family_zoning/housing_sf_other_w_census.csv');
+    singleFamilyGeo = await fetch(import.meta.env.BASE_URL + 'single_family_zoning/housing_sf_other_w_census_reprojected.json').then(res => res.json());
+    const unitPriceCsv = await d3.csv(import.meta.env.BASE_URL + 'scatterplot/average_unit_price_by_municipality.csv');
+    const yearMuniAcc = await fetch(import.meta.env.BASE_URL + 'housing_timeline/year_municipality_accumulation_filtered.json').then(res => res.json());
 
     // Build CSV map
     singleFamilyCsvData = new Map();
@@ -1284,7 +1284,7 @@
   <div class="section-header" style="font-size: 2.5rem; font-weight: bold; margin-bottom: 1.5rem; text-align: center;">The Evolution of Zoning in Boston</div>
 
   <div style="text-align: center; margin-bottom: 2rem;">
-    <img src="/images/zoninglaws.jpg" alt="Zoning Laws Timeline" 
+    <img src="{import.meta.env.BASE_URL}images/zoninglaws.jpg" alt="Zoning Laws Timeline" 
       style="max-width: 100%; height: auto; border-radius: 12px; box-shadow: 0 4px 8px rgba(0,0,0,0.1);" />
   </div>
 
@@ -1313,7 +1313,7 @@
           century-old zoning choices.
         </p >
         <div style="text-align: center; margin: 1.5rem 0;">
-          <img src="/images/figure1.jpg" alt="Zoning Impact" 
+          <img src="{import.meta.env.BASE_URL}images/figure1.jpg" alt="Zoning Impact"
             style="max-width: 100%; height: auto; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);" />
         </div>
       </div>
@@ -1384,10 +1384,10 @@
       <div style="margin-top: 3rem; background: #F8D6C5; padding: 1.5rem; border-radius: 8px;">
         <h4 style="font-size: 1.4rem; margin-top: 0; color: #5c5145;">Why It Matters:</h4>
         <ul style="font-size: 1.1rem; margin-bottom: 0; line-height: 1.6;">
-          <li>Reveal gaps between income and housing affordability</li>
-          <li>Spot trends in where new housing opportunities are emerging</li>
-          <li>Highlight the need for inclusive zoning reforms</li>
-        </ul>
+          <li>Expose the mismatch between incomes and housing costs</li>
+          <li>Uncover where housing growth has accelerated — or stalled</li>
+          <li>Highlight zoning barriers and the path to inclusive reform</li>
+        </ul>        
       </div>
     </div>
   </section>
