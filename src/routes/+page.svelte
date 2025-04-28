@@ -18,7 +18,6 @@
   // Precomputed cache
   let incomeCache = new Map();
   let demoCache = new Map();
-  let timelineCache = new Map();
 
   // Scatterplot data
   let scatterData = [];
@@ -27,7 +26,6 @@
   let tooltip;
   let x;
   let y;
-
 
   // Define groups of columns for each income level
   let selectedIncomeLevel = 3; // slider value (0-5)
@@ -72,6 +70,8 @@
   };
 
   // Housing timeline
+  let timelineDataMap = new Map();
+  let barSvg, barX, barY;
   let selectedYear = 2025; // default year for timeline
   let searchQuery = ''; // for filtering municipalities
 
@@ -80,7 +80,7 @@
     const singleFamilyCsv = await d3.csv('/single_family_zoning/housing_sf_other_w_census.csv');
     singleFamilyGeo = await fetch('/single_family_zoning/housing_sf_other_w_census_reprojected.json').then(res => res.json());
     const unitPriceCsv = await d3.csv('/scatterplot/average_unit_price_by_municipality.csv');
-    const timelineCsv = await d3.csv('/housing_timeline/timeline_housing_data.csv');
+    const yearMuniAcc = await fetch('/housing_timeline/year_municipality_accumulation_filtered.json').then(res => res.json());
 
     // Build CSV map
     singleFamilyCsvData = new Map();
@@ -138,21 +138,18 @@
     console.log("Demographics Cache: ", demoCache);
 
     // Build timeline cache
-    timelineCsv.forEach(row => {
-      const fid = parseInt(row.fid);
-      const year = parseInt(row.year_built);
-      const units = parseInt(row.units);
-
-      if (!timelineCache.has(fid)) {
-        timelineCache.set(fid, {});
-      }
-      if (!timelineCache.get(fid)[year]) {
-        timelineCache.get(fid)[year] = 0;
-      }
-      timelineCache.get(fid)[year] += units;
+    timelineDataMap = new Map();
+    Object.entries(yearMuniAcc).forEach(([year, municipalities]) => {
+      Object.entries(municipalities).forEach(([muni, totalUnits]) => {
+        if (!timelineDataMap.has(muni)) {
+          timelineDataMap.set(muni, []);
+        }
+        timelineDataMap.get(muni).push({
+          year: parseInt(year),
+          totalUnits: parseFloat(totalUnits || 0)
+        });
+      });
     });
-
-    console.log('Timeline Cache:', timelineCache);
 
     const incomeMidpoints = {
       incu10: 5000,
@@ -267,7 +264,6 @@
     }
   }
 
-
   async function initZoningMap() {
     mapboxgl.accessToken = MAPBOX_TOKEN;
     zoningMap = new mapboxgl.Map({
@@ -284,6 +280,112 @@
       updateIncomeLayer(); // Draw initial map
     });
   }
+
+  function initBarChart() {
+    const margin = { top: 40, right: 30, bottom: 70, left: 80 };
+    const width = 1000 - margin.left - margin.right;
+    const height = 500 - margin.top - margin.bottom;
+
+    barSvg = d3.select("#timeline-map")
+      .append("svg")
+      .attr("viewBox", `0 0 ${width + margin.left + margin.right} ${height + margin.top + margin.bottom}`)
+      .attr("preserveAspectRatio", "xMidYMid meet")
+      .append("g")
+      .attr("width", width + margin.left + margin.right)
+      .attr("height", height + margin.top + margin.bottom)
+      .attr("transform", `translate(${margin.left},${margin.top})`);
+
+    barX = d3.scaleBand()
+      .range([0, width])
+      .padding(0.2);
+
+    barY = d3.scaleLinear()
+      .range([height, 0]);
+
+    barSvg.append("g")
+      .attr("class", "x-axis")
+      .attr("transform", `translate(0,${height})`);
+
+    barSvg.append("g")
+      .attr("class", "y-axis");
+
+    // X-axis label
+    barSvg.append("text")
+      .attr("text-anchor", "middle")
+      .attr("x", (1000 - 80 - 30) / 2)  // width minus margins divided by 2
+      .attr("y", 500 - 40 + 50)          // height minus top margin plus some padding
+      .text("Municipality")
+      .style("font-size", "14px");
+
+    // Y-axis label
+    barSvg.append("text")
+      .attr("text-anchor", "middle")
+      .attr("transform", "rotate(-90)")
+      .attr("x", -(500 - 40 - 70) / 2)   // height minus margins divided by 2
+      .attr("y", -60)                    // place it to the left of y-axis
+      .text("Total Units Built (up to selected year)")
+      .style("font-size", "14px");
+  }
+
+  function updateBarChart(selectedYear) {
+
+    const data = Array.from(timelineDataMap.entries())
+      .map(([muni, entries]) => {
+        return {
+          muni, // muni is already the municipality name
+          totalUnits: entries
+            .filter(entry => entry.year <= selectedYear)
+            .reduce((sum, entry) => sum + entry.totalUnits, 0)
+        };
+      })
+      .filter(d => d && d.totalUnits > 0);
+
+  console.log("Bar Chart Data:", data);
+
+  // Update X and Y domain
+  barX.domain(data.map(d => d.muni));
+  barY.domain([0, d3.max(data, d => d.totalUnits)]);
+
+  barSvg.select(".x-axis")
+    .transition()
+    .duration(500)
+    .call(d3.axisBottom(barX))
+    .selectAll("text")
+    .attr("transform", "rotate(-45)")
+    .style("text-anchor", "end")
+    .style("font-size", "10px");
+
+  barSvg.select(".y-axis")
+    .transition()
+    .duration(500)
+    .call(d3.axisLeft(barY));
+
+  const bars = barSvg.selectAll(".bar")
+    .data(data, d => d.muni);
+
+  bars.enter()
+    .append("rect")
+    .attr("class", "bar")
+    .attr("x", d => barX(d.muni))
+    .attr("width", barX.bandwidth())
+    .attr("y", barY(0)) // Start from 0 for animation
+    .attr("height", 0)
+    .attr("fill", "#69b3a2")
+    .transition()
+    .duration(500)
+    .attr("y", d => barY(d.totalUnits))
+    .attr("height", d => barY(0) - barY(d.totalUnits));
+
+  bars.transition()
+    .duration(500)
+    .attr("x", d => barX(d.muni))
+    .attr("width", barX.bandwidth())
+    .attr("y", d => barY(d.totalUnits))
+    .attr("height", d => barY(0) - barY(d.totalUnits))
+    .attr("fill", "#69b3a2");
+
+  bars.exit().remove();
+}
 
   function onTabChange(tabName) {
     activeTab = tabName;
@@ -803,7 +905,7 @@
 
   function onTimelineChange(event) {
     selectedYear = parseInt(event.target.value);
-    updateTimelineMap();
+    updateBarChart(selectedYear);
   }
 
   function initScatterplot() {
@@ -833,13 +935,13 @@
       .domain([0, d3.max(scatterData, d => d.avgUnitPrice) * 1.05]) // little padding
       .range([height, 0]);
 
-      scatterData.forEach(d => {
-        if (d.avgIncome && d.avgUnitPrice) {
-          d.yearsToPayoff = d.avgUnitPrice / d.avgIncome;
-        } else {
-          d.yearsToPayoff = null; // ❗ set clearly if missing
-        }
-      });
+    scatterData.forEach(d => {
+      if (d.avgIncome && d.avgUnitPrice) {
+        d.yearsToPayoff = d.avgUnitPrice / d.avgIncome;
+      } else {
+        d.yearsToPayoff = null; // ❗ set clearly if missing
+      }
+    });
 
 
     // 🧠 Fix color scale domain
@@ -1041,6 +1143,8 @@
     await loadData();
     await initScatterplot();
     await initZoningMap();
+    await initBarChart();
+    updateBarChart(selectedYear);
 
     // // ✨ Animate the scatterplot when it scrolls into view
     // const scatterplot = document.getElementById('scatterplot');
@@ -1313,13 +1417,13 @@
       <div class="container-fluid d-flex justify-content-between align-items-center mb-4" style="max-width: 1200px; padding: 0 2rem;">
         <!-- Left: Search Box -->
         <div class="d-flex align-items-center gap-2">
-          <input
+          <!-- <input
             type="text"
             placeholder="Search municipality..."
             class="search-box"
             bind:value={searchQuery}
             on:input={onSearch}
-          />
+          /> -->
         </div>
     
         <!-- Right: Year Label + Slider -->
