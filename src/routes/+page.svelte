@@ -71,6 +71,7 @@
 
   // Housing timeline
   let timelineDataMap = new Map();
+  let timelineMaxUnits = 0;
   let barSvg, barX, barY;
   let selectedYear = 2025; // default year for timeline
   let searchQuery = ''; // for filtering municipalities
@@ -150,6 +151,13 @@
         });
       });
     });
+
+    // After filling timelineDataMap
+    timelineMaxUnits = d3.max(
+      Array.from(timelineDataMap.entries()).map(([muni, entries]) => 
+        entries.reduce((sum, entry) => sum + entry.totalUnits, 0)
+      )
+    );
 
     const incomeMidpoints = {
       incu10: 5000,
@@ -300,6 +308,7 @@
       .padding(0.2);
 
     barY = d3.scaleLinear()
+      .domain([0, timelineMaxUnits]) // ✅ fix the domain once
       .range([height, 0]);
 
     barSvg.append("g")
@@ -344,7 +353,6 @@
 
   // Update X and Y domain
   barX.domain(data.map(d => d.muni));
-  barY.domain([0, d3.max(data, d => d.totalUnits)]);
 
   barSvg.select(".x-axis")
     .transition()
@@ -1277,8 +1285,6 @@
     }
   </style>
 </section>
-
-
 
 <section id="history-intro" style="padding: 60px 20px 40px 20px; background: #f9f4ef;">
   <div class="section-header" style="font-size: 2.5rem; font-weight: bold; margin-bottom: 1.5rem; text-align: center;">The Evolution of Zoning in Boston</div>
