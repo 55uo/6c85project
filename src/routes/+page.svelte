@@ -1068,31 +1068,231 @@
 </svelte:head>
 
 <main>
-    <section id="hero" class="alt-bg">
-        <div class="section-header">Reforming Zoning for Affordable Housing</div>
-        <p class="section-intro">
-          Explore how zoning affects housing availability and what reforms can mean for you.
-        </p>
-    </section>
+  <section id="hero" style="
+  padding: 120px 20px;
+  text-align: center;
+  background: linear-gradient(135deg, #f9f4ef 0%, #e8e3dc 100%);
+  position: relative;
+  overflow: hidden;
+">
+  <!-- Decorative shapes -->
+  <div style="
+    position: absolute;
+    top: -50px;
+    right: -50px;
+    width: 200px;
+    height: 200px;
+    background: rgba(248, 214, 197, 0.3);
+    border-radius: 50%;
+    z-index: 0;
+  "></div>
+  <div style="
+    position: absolute;
+    bottom: 20px;
+    left: -30px;
+    width: 150px;
+    height: 150px;
+    background: rgba(248, 214, 197, 0.2);
+    border-radius: 30% 70% 70% 30%;
+    z-index: 0;
+  "></div>
 
-    <section id="history">
-      <div class="section-header">History of Zoning in Boston</div>
-    
-      <div class="history-content">
-        <p class="history-text">
-          Zoning laws, which originated in the early 20th century, were initially implemented to regulate land use and promote public health, safety, and welfare. However, over time, these laws evolved to introduce practices that segregated neighborhoods along racial and economic boundaries. In Boston, exclusionary zoning can be traced back to the 1920s, when regulations deliberately limited access to affordable housing for marginalized groups. Practices such as single-family zoning and restrictive building types have had lasting effects, contributing to today’s housing crisis by limiting affordable housing supply, raising costs, and deepening racial and class segregation. Recent efforts, such as Minneapolis' reforms, aim to address these inequities by eliminating exclusionary zoning and encouraging diverse housing types.
-        </p>
-    
-        <div class="history-image-container">
-          <img src="/images/figure1.jpg" alt="Zoning history in Boston" class="history-image" />
-          <div class="image-caption">Figure 1. Early zoning policies shaped Boston’s urban landscape.</div>
+  <!-- Content container -->
+  <div style="position: relative; z-index: 1; max-width: 900px; margin: 0 auto;">
+    <h1 style="
+      font-size: 3.2rem;
+      font-weight: 800;
+      margin-bottom: 25px;
+      color: #3a3229;
+      line-height: 1.2;
+      text-shadow: 1px 1px 2px rgba(0,0,0,0.05);
+      animation: fadeInUp 0.8s ease-out;
+    ">
+      Reforming Zoning<br>for <span style="color: #d4a593;">Affordable Housing</span>
+    </h1>
+
+    <p style="
+      font-size: 1.4rem;
+      color: #5c5145;
+      max-width: 700px;
+      margin: 0 auto 40px;
+      line-height: 1.6;
+      animation: fadeInUp 0.8s ease-out 0.2s both;
+    ">
+      Discover how zoning shapes your opportunities — and how reforms can unlock more affordable housing options for everyone.
+    </p >
+
+    <a href="#history-intro" style="
+      display: inline-block;
+      padding: 10px 24px;
+      background-color: #F8D6C5;
+      color: #5c5145;
+      font-size: 1.1rem;
+      font-family: 'Poppins', sans-serif;
+      font-weight: 600;
+      border-radius: 8px;
+      text-decoration: none;
+      transition: all 0.3s ease;
+      box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+      animation: fadeInUp 0.8s ease-out 0.4s both;
+      position: relative;
+      overflow: hidden;
+    ">
+      <span style="position: relative; z-index: 2;">Start Exploring</span>
+      <span style="
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 0;
+        height: 100%;
+        background-color: rgba(255,255,255,0.2);
+        transition: width 0.3s ease;
+        z-index: 1;
+      "></span>
+    </a >
+  </div>
+
+  <style>
+    @keyframes fadeInUp {
+      from {
+        opacity: 0;
+        transform: translateY(20px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+    #hero a:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 12px rgba(0,0,0,0.1);
+    }
+    #hero a:hover span:last-child {
+      width: 100%;
+    }
+  </style>
+</section>
+
+
+
+<section id="history-intro" style="padding: 60px 20px 40px 20px; background: #f9f4ef;">
+  <div class="section-header" style="font-size: 2.5rem; font-weight: bold; margin-bottom: 1.5rem; text-align: center;">The Evolution of Zoning in Boston</div>
+
+  <div style="text-align: center; margin-bottom: 2rem;">
+    <img src="/images/zoninglaws.jpg" alt="Zoning Laws Timeline" 
+      style="max-width: 100%; height: auto; border-radius: 12px; box-shadow: 0 4px 8px rgba(0,0,0,0.1);" />
+  </div>
+
+  <div style="max-width: 800px; margin: 0 auto;">
+    <!-- Combined Beginning + Shift -->
+    <div style="margin-bottom: 2.5rem;">
+      <h3 style="font-size: 1.5rem; color: #5c5145; margin-bottom: 1rem;">From Planning to Exclusion</h3>
+      <p style="font-size: 1.15rem; line-height: 1.7; color: #333; margin-bottom: 1rem;">
+        In the early 1900s, zoning laws were created to organize land use and improve public safety. 
+        But by the 1920s in Boston, these rules became tools for <strong style="color: #5c5145;">segregation</strong>, 
+        deliberately limiting housing access for marginalized groups through single-family zoning 
+        and restrictive building codes.
+      </p >
+      <p style="font-style: italic; font-size: 1rem; color: #777; text-align: center;">
+        The map of the city was being redrawn — but not for everyone's benefit
+      </p >
+    </div>
+
+    <!-- Combined Impact + Future -->
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 2rem; margin-top: 2rem;">
+      <div>
+        <h3 style="font-size: 1.5rem; color: #5c5145; margin-bottom: 1rem;">Lasting Consequences</h3>
+        <p style="font-size: 1.15rem; line-height: 1.7; color: #333;">
+          These policies created <strong>lasting divides</strong> — today's housing prices, 
+          neighborhood segregation, and limited affordable options still reflect 
+          century-old zoning choices.
+        </p >
+        <div style="text-align: center; margin: 1.5rem 0;">
+          <img src="/images/figure1.jpg" alt="Zoning Impact" 
+            style="max-width: 100%; height: auto; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);" />
         </div>
-    
-        <p class="history-subtext">
-          These historical patterns continue to influence where affordable housing can be built today, perpetuating inequities rooted in zoning’s original design.
-        </p>
       </div>
-    </section>    
+
+      <div>
+        <h3 style="font-size: 1.5rem; color: #5c5145; margin-bottom: 1rem;">Pathways to Reform</h3>
+        <p style="font-size: 1.15rem; line-height: 1.7; color: #333;">
+          Cities like Minneapolis are proving change is possible by eliminating 
+          <em>single-family-only zoning</em>. Boston now faces a choice: 
+          maintain exclusionary systems or create <strong style="color: #5c5145;">inclusive communities</strong> 
+          through zoning reform.
+        </p >
+        <p style="font-style: italic; font-size: 1rem; color: #777; margin-top: 1.5rem;">
+          We can build a better future — if we change how we plan it
+        </p >
+      </div>
+    </div>
+  </div>
+</section>
+
+
+<section id="key-takeaways" style="max-width: 900px; margin: 3rem auto; padding: 0 20px;">
+  <h2 style="font-size: 2.5rem; font-weight: bold; margin-bottom: 1.5rem; text-align: center; ">Finding Your Affordable Home in Boston</h2>
+  
+  <div style="background: #f9f4ef; border-radius: 12px; padding: 2.5rem; margin-bottom: 2.5rem;">
+    <h3 style="font-size: 1.8rem; color: #5c5145; margin-bottom: 1.5rem;">Your Housing Navigator</h3>
+    <p style="font-size: 1.2rem; line-height: 1.6; margin-bottom: 1.8rem;">
+      As a first-time homebuyer or renter earning 60-100% AMI, use these tools to navigate Boston's housing landscape:
+    </p >
+    
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 2rem;">
+      <!-- Tool 1 -->
+      <div style="background: white; padding: 2rem; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.05);">
+        <h4 style="font-size: 1.4rem; color: #d4a593; margin-bottom: 1rem;">📍 Housing Match Map</h4>
+        <p style="font-size: 1.1rem;">Filter neighborhoods by:</p >
+        <ul style="font-size: 1.1rem; margin-top: 1rem; padding-left: 1.5rem; line-height: 1.6;">
+          <li>Your household income</li>
+          <li>Family size needs</li>
+          <li>Year-built preferences</li>
+          <li>Transportation access</li>
+        </ul>
+        <p style="font-size: 1.1rem; font-style: italic; margin-top: 1.5rem;">Try dragging the timeline to see new developments!</p >
+      </div>
+      
+      <!-- Tool 2 -->
+      <div style="background: white; padding: 2rem; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.05);">
+        <h4 style="font-size: 1.4rem; color: #d4a593; margin-bottom: 1rem;">📊 Neighborhood Insights</h4>
+        <p style="font-size: 1.1rem;">Click any area to see:</p >
+        <ul style="font-size: 1.1rem; margin-top: 1rem; padding-left: 1.5rem; line-height: 1.6;">
+          <li>Income distribution</li>
+          <li>Demographic breakdown</li>
+          <li>Price-to-income ratios</li>
+          <li>Upcoming zoning changes</li>
+        </ul>
+        <p style="font-size: 1.1rem; font-style: italic; margin-top: 1.5rem;">Search for your ideal municipality below!</p >
+      </div>
+    </div>
+    
+    <div style="margin-top: 2.5rem; background: #F8D6C5; padding: 1.5rem; border-radius: 8px;">
+      <h4 style="font-size: 1.4rem; margin-top: 0; color: #5c5145;">How Zoning Reforms Help You:</h4>
+      <ul style="font-size: 1.1rem; margin-bottom: 0; line-height: 1.6;">
+        <li>More "missing middle" housing = more options for middle-income families</li>
+        <li>Faster approvals = quicker move-in opportunities</li>
+        <li>Inclusionary zoning = permanently affordable units</li>
+      </ul>
+    </div>
+  </div>
+  
+  <div style="text-align: center;">
+    <a href="#price" style="  <!-- Changed from #interactive-tools to #availability -->
+      display: inline-block;
+      padding: 14px 28px;
+      background-color: #F8D6C5;
+      color: #5c5145;
+      font-size: 1.3rem;
+      font-weight: 600;
+      border-radius: 8px;
+      text-decoration: none;
+      transition: all 0.3s ease;
+    ">
+      Explore Interactive Tools →
+    </a >
+  </div>
+</section>   
 
     <section id="price" class="alt-bg">
       <div class="scatterplot-fullwidth">
