@@ -844,6 +844,32 @@
       .text("Average Household Unit Purchase Price ($)")
       .style("font-size", "14px");
 
+    // Add transparent background rect to detect clicks
+    svg.append("rect")
+    .attr("width", width)
+    .attr("height", height)
+    .attr("fill", "transparent") 
+    .lower() // put it behind everything
+    .on("click", () => {
+      selectedMuni = null;
+
+      // Reset all circles appearance
+      const circles = d3.select("#scatterplot svg g").selectAll("circle");
+      circles
+        .attr("r", 7)
+        .attr("stroke-width", 0.1)
+        .attr("opacity", 0.85);
+
+      // Hide tooltip
+      tooltip.transition().duration(300).style("opacity", 0);
+
+      // Reset dropdown to placeholder
+      const selectElement = document.getElementById("searchSelect");
+      if (selectElement) {
+        selectElement.value = "";
+      }
+    });
+
     // Scatter points
     svg.selectAll("circle")
       .data(scatterData)
