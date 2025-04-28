@@ -699,8 +699,8 @@
     const height = 550 - margin.top - margin.bottom;
 
     // Define the legend size first
-    const legendHeight = 200;
-    const legendWidth = 12;
+    const legendHeight = 400;
+    const legendWidth = 40;
 
     const svg = d3.select("#scatterplot")
       .append("svg")
@@ -818,7 +818,7 @@
 
     // Add a group (g) for the red dashed line legend
     const lineLegend = svg.append("g")
-      .attr("transform", `translate(${width - 220}, 20)`); // move to top right corner nicely
+      .attr("transform", `translate(${width - 300}, 20)`); // move to top right corner nicely
 
     // Draw a red dashed sample line inside
     lineLegend.append("line")
@@ -888,8 +888,8 @@
       .call(d3.axisRight(legendScale).ticks(6));
 
     legendSvg.append("text")
-      .attr("x", 0)
-      .attr("y", -10)
+      .attr("x", -30)
+      .attr("y", -20)
       .attr("text-anchor", "start")
       .style("font-size", "12px")
       .text("Years to Pay Off");
