@@ -145,7 +145,38 @@
       in200o: 225000  // assume $225k for >200k
     };
 
-    scatterData = singleFamilyCsv.map(row => {
+    // Create merged version just for scatterplot use
+    let mergedSingleFamilyCsv = [];
+
+    const muniMergeMap = new Map();
+
+    singleFamilyCsv.forEach(row => {
+      const muniName = row.muni?.trim().toLowerCase();
+      if (!muniName) return; // skip if no name
+
+      if (!muniMergeMap.has(muniName)) {
+        muniMergeMap.set(muniName, { ...row, count: 1 });
+      } else {
+        const existing = muniMergeMap.get(muniName);
+        
+        // Sum up all numeric fields
+        for (const key in row) {
+          if (key !== 'muni' && key !== 'fid' && !isNaN(parseFloat(row[key]))) {
+            existing[key] = (parseFloat(existing[key]) || 0) + (parseFloat(row[key]) || 0);
+          }
+        }
+        existing.count += 1;
+      }
+    });
+
+    // Now create the merged list
+    mergedSingleFamilyCsv = Array.from(muniMergeMap.values()).map(row => ({
+      ...row,
+      fid: row.fid, // optional, doesn't really matter for scatterplot
+      muni: row.muni
+    }));
+
+    scatterData = mergedSingleFamilyCsv.map(row => {
       let totalIncome = 0;
       let totalHouseholds = 0;
 
