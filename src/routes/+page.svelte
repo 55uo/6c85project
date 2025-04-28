@@ -18,6 +18,7 @@
   // Precomputed cache
   let incomeCache = new Map();
   let demoCache = new Map();
+  let timelineCache = new Map();
 
   // Scatterplot data
   let scatterData = [];
@@ -70,11 +71,16 @@
     "Nonfamily Households - 7+ people": "nfhh7o"
   };
 
+  // Housing timeline
+  let selectedYear = 2025; // default year for timeline
+  let searchQuery = ''; // for filtering municipalities
+
   async function loadData() {
+    // Load CSV and GeoJSON data
     const singleFamilyCsv = await d3.csv('/single_family_zoning/housing_sf_other_w_census.csv');
     singleFamilyGeo = await fetch('/single_family_zoning/housing_sf_other_w_census_reprojected.json').then(res => res.json());
-
     const unitPriceCsv = await d3.csv('/scatterplot/average_unit_price_by_municipality.csv');
+    const timelineCsv = await d3.csv('/housing_timeline/timeline_housing_data.csv');
 
     // Build CSV map
     singleFamilyCsvData = new Map();
@@ -126,11 +132,27 @@
         }
         demoCache.set(fid, zeroPercentages);
       }
-    
     });
 
     console.log("Income Cache: ", incomeCache);
     console.log("Demographics Cache: ", demoCache);
+
+    // Build timeline cache
+    timelineCsv.forEach(row => {
+      const fid = parseInt(row.fid);
+      const year = parseInt(row.year_built);
+      const units = parseInt(row.units);
+
+      if (!timelineCache.has(fid)) {
+        timelineCache.set(fid, {});
+      }
+      if (!timelineCache.get(fid)[year]) {
+        timelineCache.get(fid)[year] = 0;
+      }
+      timelineCache.get(fid)[year] += units;
+    });
+
+    console.log('Timeline Cache:', timelineCache);
 
     const incomeMidpoints = {
       incu10: 5000,
@@ -779,6 +801,11 @@
     }
   }
 
+  function onTimelineChange(event) {
+    selectedYear = parseInt(event.target.value);
+    updateTimelineMap();
+  }
+
   function initScatterplot() {
     const margin = { top: 40, right: 80, bottom: 60, left: 70 };
     const containerWidth = document.getElementById("scatterplot").offsetWidth;
@@ -1011,6 +1038,7 @@
     href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha3/dist/css/bootstrap.min.css"
     rel="stylesheet"
   />
+  <link href="https://unpkg.com/aos@2.3.4/dist/aos.css" rel="stylesheet">
 </svelte:head>
 
 <main>
@@ -1059,16 +1087,51 @@
       </div>
     </section>      
 
-    <section id="availability">
-        <div class="section-header">Housing Availability Over Time</div>
-        <input type="range" min="1980" max="2025" class="form-range mb-4" />
-        <div class="box text-center" style="height: 400px;">
-        [ Housing Timeline Map Placeholder ]
+    <section id="timeline">
+      <div class="section-header">Emergence of New Housing Over Time</div>
+      <!-- Flex Row: Search + Year slider -->
+      <div class="container-fluid d-flex justify-content-between align-items-center mb-4" style="max-width: 1200px; padding: 0 2rem;">
+        <!-- Left: Search Box -->
+        <div class="d-flex align-items-center gap-2">
+          <input
+            type="text"
+            placeholder="Search municipality..."
+            class="search-box"
+            bind:value={searchQuery}
+            on:input={onSearch}
+          />
         </div>
-        <div class="analysis-box">
-        [ Discuss trends in development—where, when, and how it impacts communities. ]
+    
+        <!-- Right: Year Label + Slider -->
+        <div class="d-flex align-items-center gap-3">
+          <span class="fw-bold" style="font-size: 1rem;">Year Selected: {selectedYear}</span>
+          <div class="slider-wrapper" style="width: 450px;">
+            <div class="slider-track">
+              <!-- (optional tick marks, similar to income slider) -->
+            </div>
+            <input
+              type="range"
+              min="1980"
+              max="2025"
+              step="1"
+              bind:value={selectedYear}
+              on:input={onTimelineChange}
+              class="form-range custom-slider"
+            />
+          </div>
         </div>
-    </section>
+    
+      </div>
+    
+      <!-- Map Container -->
+      <div class="d-flex justify-content-center">
+        <div class="box" style="height: 600px; width: 100%; max-width: 1200px; background-color: #e9e3d9;">
+          <div id="timeline-map" style="position: relative; height: 100%; width: 100%;">
+            <!-- Timeline Mapbox will go here -->
+          </div>
+        </div>
+      </div>
+    </section>    
 
     <section id="map" class="alt-bg">
         <div class="section-header">Interactive Housing Explorer</div>
@@ -1637,16 +1700,6 @@
     text-align: center;
   }
 
-  /* .scatter-box {
-    background: white;
-    border: 1px solid #ddd4c5;
-    border-radius: 12px;
-    box-shadow: 0 4px 10px rgba(0,0,0,0.1);
-    padding: 2rem;
-    max-width: 1000px;
-    margin: 0 auto 2rem auto;
-  } */
-
   .scatterplot-title {
     font-family: 'Montserrat', sans-serif;
     font-size: 2rem;
@@ -1672,22 +1725,29 @@
     box-shadow: 0 4px 10px rgba(0,0,0,0.1);
   }
 
-  /* .scatterplot-canvas {
-    width: 100%;
-    height: 600px;
+  .search-box {
+    width: 280px;
+    padding: 0.6rem 1.2rem;
+    font-size: 1rem;
+    color: var(--neutral-main);
+    background-color: white;
+    border: 1px solid var(--neutral-light);
+    /* border-radius: 50px; */
+    box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+    transition: all 0.3s ease;
   }
 
-  .scatterplot-canvas {
-    opacity: 0;
-    transform: translateY(30px);
-    transition: opacity 0.8s ease-out, transform 0.8s ease-out;
+  .search-box::placeholder {
+    color: var(--neutral-main);
+    opacity: 0.6;
+    font-style: italic;
   }
 
-  .scatterplot-canvas.scatterplot-animate {
-    opacity: 1;
-    transform: translateY(0);
-  } */
-
+  .search-box:focus {
+    outline: none;
+    border-color: var(--accent-hope);
+    box-shadow: 0 0 0 3px rgba(166,185,163,0.3);
+  }
   #scatterplot {
     position: relative;
   }
