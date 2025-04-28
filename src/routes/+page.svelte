@@ -1108,7 +1108,7 @@
       text-shadow: 1px 1px 2px rgba(0,0,0,0.05);
       animation: fadeInUp 0.8s ease-out;
     ">
-      Reforming Zoning<br>for <span style="color: #d4a593;">Affordable Housing</span>
+      Reforming Zoning for<br> <span style="color: #d4a593;">Affordable Housing</span>
     </h1>
 
     <p style="
@@ -1222,7 +1222,7 @@
           through zoning reform.
         </p >
         <p style="font-style: italic; font-size: 1rem; color: #777; margin-top: 1.5rem;">
-          We can build a better future — if we change how we plan it
+          We can build a better future — if we change how we plan it.
         </p >
       </div>
     </div>
@@ -1230,73 +1230,67 @@
 </section>
 
 
-<section id="key-takeaways" style="max-width: 900px; margin: 3rem auto; padding: 0 20px;">
-  <h2 style="font-size: 2.5rem; font-weight: bold; margin-bottom: 1.5rem; text-align: center; ">Finding Your Affordable Home in Boston</h2>
-  
-  <div style="background: #f9f4ef; border-radius: 12px; padding: 2.5rem; margin-bottom: 2.5rem;">
-    <h3 style="font-size: 1.8rem; color: #5c5145; margin-bottom: 1.5rem;">Your Housing Navigator</h3>
-    <p style="font-size: 1.2rem; line-height: 1.6; margin-bottom: 1.8rem;">
-      As a first-time homebuyer or renter earning 60-100% AMI, use these tools to navigate Boston's housing landscape:
-    </p >
-    
-    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 2rem;">
-      <!-- Tool 1 -->
-      <div style="background: white; padding: 2rem; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.05);">
-        <h4 style="font-size: 1.4rem; color: #d4a593; margin-bottom: 1rem;">📍 Housing Match Map</h4>
-        <p style="font-size: 1.1rem;">Filter neighborhoods by:</p >
-        <ul style="font-size: 1.1rem; margin-top: 1rem; padding-left: 1.5rem; line-height: 1.6;">
-          <li>Your household income</li>
-          <li>Family size needs</li>
-          <li>Year-built preferences</li>
-          <li>Transportation access</li>
-        </ul>
-        <p style="font-size: 1.1rem; font-style: italic; margin-top: 1.5rem;">Try dragging the timeline to see new developments!</p >
+<section id="key-takeaways" style="max-width: 1200px; margin: 3rem auto; padding: 0 20px;">
+    <h2 style="font-size: 2.5rem; font-weight: bold; margin-bottom: 1.5rem; text-align: center;">Navigating Boston's Housing Landscape</h2>
+
+    <div style="background: #f9f4ef; border-radius: 12px; padding: 2.5rem;">
+      <h3 style="font-size: 1.8rem; color: #5c5145; margin-bottom: 1.5rem; text-align: center;">Explore Our Interactive Tools</h3>
+      <p style="font-size: 1.2rem; line-height: 1.6; margin-bottom: 2.5rem; text-align: center;">
+        Use our visual tools to uncover trends in housing affordability, neighborhood demographics, and new development patterns across Greater Boston:
+      </p>
+
+      <div style="display: flex; flex-wrap: nowrap; gap: 2rem; justify-content: center;">
+        <!-- Tool 1: Scatterplot -->
+        <div style="flex: 1; background: white; padding: 2rem; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); text-align: center;">
+          <h4 style="font-size: 1.4rem; color: #d4a593; margin-bottom: 1rem;">💬 <br><br>Affordability Explorer</h4>
+          <p style="font-size: 1.1rem;">Compare average household incomes to home purchase prices across municipalities.</p>
+          <ul style="text-align: left; margin-top: 1rem; padding-left: 1.5rem; font-size: 1.0rem; line-height: 1.6;">
+            <li>Identify affordable and unaffordable regions</li>
+            <li>Hover to view detailed municipality-level data</li>
+            <li>Highlight specific towns via search</li>
+          </ul>
+          <a href="#price" style="display: inline-block; margin-top: 1.5rem; padding: 10px 20px; background: #F8D6C5; color: #5c5145; border-radius: 6px; font-weight: 600; text-decoration: none;">Explore</a>
+        </div>
+
+        <!-- Tool 2: Timeline -->
+        <div style="flex: 1; background: white; padding: 2rem; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); text-align: center;">
+          <h4 style="font-size: 1.4rem; color: #d4a593; margin-bottom: 1rem;">📅 <br><br> Housing Growth Timeline</h4>
+          <p style="font-size: 1.1rem;">Visualize when new housing units were built across municipalities from 1980 to 2025.</p>
+          <ul style="text-align: left; margin-top: 1rem; padding-left: 1.5rem; font-size: 1.0rem; line-height: 1.6;">
+            <li>Adjust the year slider to track growth patterns</li>
+            <li>Spot municipalities with active or stalled development</li>
+            <li>Search specific towns to focus analysis</li>
+          </ul>
+          <a href="#timeline" style="display: inline-block; margin-top: 1.5rem; padding: 10px 20px; background: #F8D6C5; color: #5c5145; border-radius: 6px; font-weight: 600; text-decoration: none;">Explore</a>
+        </div>
+
+        <!-- Tool 3: Interactive Housing Explorer -->
+        <div style="flex: 1; background: white; padding: 2rem; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); text-align: center;">
+          <h4 style="font-size: 1.4rem; color: #d4a593; margin-bottom: 1rem;">🗺️ <br><br> Interactive Housing Explorer</h4>
+          <p style="font-size: 1.1rem;">Filter and map neighborhoods based on household income, demographics, or family size.</p>
+          <ul style="text-align: left; margin-top: 1rem; padding-left: 1.5rem; font-size: 1.0rem; line-height: 1.6;">
+            <li>Switch between income, demographic, and family size</li>
+            <li>Toggle between density or absolute numbers</li>
+            <li>Compare access and opportunity across regions</li>
+          </ul>
+          <a href="#map" style="display: inline-block; margin-top: 1.5rem; padding: 10px 20px; background: #F8D6C5; color: #5c5145; border-radius: 6px; font-weight: 600; text-decoration: none;">Explore</a>
+        </div>
       </div>
-      
-      <!-- Tool 2 -->
-      <div style="background: white; padding: 2rem; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.05);">
-        <h4 style="font-size: 1.4rem; color: #d4a593; margin-bottom: 1rem;">📊 Neighborhood Insights</h4>
-        <p style="font-size: 1.1rem;">Click any area to see:</p >
-        <ul style="font-size: 1.1rem; margin-top: 1rem; padding-left: 1.5rem; line-height: 1.6;">
-          <li>Income distribution</li>
-          <li>Demographic breakdown</li>
-          <li>Price-to-income ratios</li>
-          <li>Upcoming zoning changes</li>
+
+      <div style="margin-top: 3rem; background: #F8D6C5; padding: 1.5rem; border-radius: 8px;">
+        <h4 style="font-size: 1.4rem; margin-top: 0; color: #5c5145;">Why It Matters:</h4>
+        <ul style="font-size: 1.1rem; margin-bottom: 0; line-height: 1.6;">
+          <li>Reveal gaps between income and housing affordability</li>
+          <li>Spot trends in where new housing opportunities are emerging</li>
+          <li>Highlight the need for inclusive zoning reforms</li>
         </ul>
-        <p style="font-size: 1.1rem; font-style: italic; margin-top: 1.5rem;">Search for your ideal municipality below!</p >
       </div>
     </div>
-    
-    <div style="margin-top: 2.5rem; background: #F8D6C5; padding: 1.5rem; border-radius: 8px;">
-      <h4 style="font-size: 1.4rem; margin-top: 0; color: #5c5145;">How Zoning Reforms Help You:</h4>
-      <ul style="font-size: 1.1rem; margin-bottom: 0; line-height: 1.6;">
-        <li>More "missing middle" housing = more options for middle-income families</li>
-        <li>Faster approvals = quicker move-in opportunities</li>
-        <li>Inclusionary zoning = permanently affordable units</li>
-      </ul>
-    </div>
-  </div>
-  
-  <div style="text-align: center;">
-    <a href="#price" style="  <!-- Changed from #interactive-tools to #availability -->
-      display: inline-block;
-      padding: 14px 28px;
-      background-color: #F8D6C5;
-      color: #5c5145;
-      font-size: 1.3rem;
-      font-weight: 600;
-      border-radius: 8px;
-      text-decoration: none;
-      transition: all 0.3s ease;
-    ">
-      Explore Interactive Tools →
-    </a >
-  </div>
-</section>   
+  </section>
 
     <section id="price" class="alt-bg">
       <div class="scatterplot-fullwidth">
-        <div class="scatterplot-title">Average Household Income vs Unit Purchase Price</div>
+        <div class="scatterplot-title">Average Household Income vs. Unit Purchase Price</div>
         <div class="scatterplot-subtitle">Hover over each dot to see which municipality it represents.</div>
     
         <!-- ✅ ADD SEARCH INPUT HERE -->
@@ -1540,7 +1534,7 @@
         </div> -->
     </section>
 
-    <section id="zoning">
+    <!-- <section id="zoning">
         <div class="section-header">Zoning Compliance & Demographics</div>
         <div class="box text-center" style="height: 400px;">
         [ Choropleth Map Placeholder ]
@@ -1548,7 +1542,7 @@
         <div class="analysis-box">
         [ Are non-compliant zones overlapping with certain racial or income groups? ]
         </div>
-    </section>
+    </section> -->
   
     <section id="development" class="alt-bg">
         <div class="section-header">New Housing Development</div>
@@ -1984,10 +1978,10 @@
 
 <div class="nav-dots">
   <a href="#hero" aria-label="Go to Hero Section"></a>
-  <a href="#history" aria-label="Go to History Section"></a>
+  <a href="#history-intro" aria-label="Go to History Section"></a>
   <a href="#price" aria-label="Go to Price Section"></a>
   <a href="#availability" aria-label="Go to Availability Section"></a>
   <a href="#map" aria-label="Go to Map Section"></a>
-  <a href="#zoning" aria-label="Go to Zoning Section"></a>
+  <!-- <a href="#zoning" aria-label="Go to Zoning Section"></a> -->
   <a href="#development" aria-label="Go to Dev Section"></a>
 </div>
