@@ -553,7 +553,7 @@
 
           infoBox.innerHTML = `
             <strong>${muniName}</strong><br/>
-            <b>${usePercentage ? 'Density:' : 'Number of Households:'}</b> ${displayValue}
+            <b>${usePercentage ? 'Households % in Selected Income Level:' : 'Number of Households:'}</b> ${displayValue}
           `;
         }
       });
@@ -621,7 +621,7 @@
           properties: {
             ...f.properties,
             demo_value: normalizedValue,
-            demo_raw: rawCount
+            demo_raw: rawCount,
           }
         };
       })
@@ -699,12 +699,13 @@
           if (usePercentage) {
             displayValue = (props.demo_value * 100).toFixed(1) + '%';
           } else {
-            displayValue = Math.round(props.demo_raw || 0).toLocaleString(); // format raw counts with commas
+            // displayValue = (Math.round(props.demo_raw || 0).toLocaleString()) * 1000000; // format raw counts with commas
+            displayValue = props.demo_raw.toLocaleString(); // format raw counts with commas
           }
 
           infoBox.innerHTML = `
             <strong>${muniName}</strong><br/>
-            <b>${usePercentage ? 'Density:' : 'Population Count:'}</b> ${displayValue}
+            <b>${usePercentage ? 'Households % in Selected Demographics Group:' : 'Population Count:'}</b> ${displayValue}
           `;
         }
       });
@@ -856,7 +857,7 @@
 
           infoBox.innerHTML = `
             <strong>${muniName}</strong><br/>
-            <b>${usePercentage ? 'Density:' : 'Number of Households:'}</b> ${displayValue}
+            <b>${usePercentage ? 'Households % in Selected Family Size:' : 'Number of Households:'}</b> ${displayValue}
           `;
         }
       });
@@ -1359,11 +1360,10 @@
         <!-- Tool 2: Timeline -->
         <div style="flex: 1; background: white; padding: 2rem; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); text-align: center;">
           <h4 style="font-size: 1.4rem; color: #d4a593; margin-bottom: 1rem;">📅 <br><br> Housing Growth Timeline</h4>
-          <p style="font-size: 1.1rem;">Visualize when new housing units were built across municipalities from 1980 to 2025.</p>
+          <p style="font-size: 1.1rem;">Track the expansion of new housing units across Greater Boston municipalities from 1980 to 2025.</p>
           <ul style="text-align: left; margin-top: 1rem; padding-left: 1.5rem; font-size: 1.0rem; line-height: 1.6;">
-            <li>Adjust the year slider to track growth patterns</li>
-            <li>Spot municipalities with active or stalled development</li>
-            <li>Search specific towns to focus analysis</li>
+            <li>Adjust the year slider to see cumulative housing built up to a selected year.</li>
+            <li>Compare towns to spot where growth has accelerated — or slowed.</li>
           </ul>
           <a href="#timeline" style="display: inline-block; margin-top: 1.5rem; padding: 10px 20px; background: #F8D6C5; color: #5c5145; border-radius: 6px; font-weight: 600; text-decoration: none;">Explore</a>
         </div>
