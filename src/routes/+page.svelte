@@ -1648,7 +1648,7 @@
         </div>
     </section> -->
   
-    <section id="development" class="alt-bg">
+    <!-- <section id="development" class="alt-bg">
         <div class="section-header">New Housing Development</div>
         <div class="box text-center" style="height: 400px;">
         [ New Development Map Placeholder ]
@@ -1656,7 +1656,7 @@
         <div class="analysis-box">
         [ What policies have worked? Where are gaps? Tie in back to zoning reform goals. ]
         </div>
-    </section>
+    </section> -->
 </main>
   
 <footer>
@@ -2113,5 +2113,5 @@
   <a href="#price" data-tooltip="Affordability"></a>
   <a href="#timeline" data-tooltip="Timeline"></a>
   <a href="#map" data-tooltip="Explorer"></a>
-  <a href="#development" data-tooltip="Development"></a>
+  <!-- <a href="#development" data-tooltip="Development"></a> -->
 </div>
