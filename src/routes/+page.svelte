@@ -938,7 +938,9 @@
 
     scatterData.forEach(d => {
       if (d.avgIncome && d.avgUnitPrice) {
-        d.yearsToPayoff = d.avgUnitPrice / d.avgIncome;
+        const loanAmount = 0.91 * d.avgUnitPrice; // after 9% down payment
+        const annualPayment = 0.28 * d.avgIncome; // 28% of yearly income
+        d.yearsToPayoff = loanAmount / annualPayment;
       } else {
         d.yearsToPayoff = null; // ❗ set clearly if missing
       }
@@ -947,8 +949,8 @@
 
     // 🧠 Fix color scale domain
     const payoffExtent = d3.extent(scatterData, d => d.yearsToPayoff);
-    const color = d3.scaleSequential(d3.interpolateGreens)
-      .domain([0, 30]); // ✅ cap at 30 years manually, darker green = worse
+    const color = d3.scaleSequential(d3.interpolateBlues)
+      .domain([0, 50]); 
 
     // X Axis
     svg.append("g")
@@ -1008,7 +1010,7 @@
       .attr("cx", d => x(d.avgIncome))
       .attr("cy", d => y(d.avgUnitPrice))
       .attr("r", 7) // 🌟 Bigger dots
-      .attr("fill", d => (d.yearsToPayoff !== null ? color(Math.min(d.yearsToPayoff, 30)) : "#ccc")) 
+      .attr("fill", d => (d.yearsToPayoff !== null ? color(Math.min(d.yearsToPayoff, 50)) : "#ccc")) 
       .attr("stroke", "black")        // 👈 add this line
       .attr("stroke-width", 0.1)      // 👈 very thin outline
       .attr("opacity", 0.85);
@@ -1114,7 +1116,7 @@
       .enter()
       .append("stop")
       .attr("offset", d => `${d*100}%`)
-      .attr("stop-color", d => color(d * 30)); // because domain is [30,0]
+      .attr("stop-color", d => color(d * 50)); // because domain is [50,0]
 
     const legendSvg = svg.append("g")
       .attr("transform", `translate(${width + 20},${height/2 - legendHeight/2})`);
@@ -1125,7 +1127,7 @@
       .style("fill", "url(#legend-gradient)");
 
     const legendScale = d3.scaleLinear()
-      .domain([30, 0]) // top to bottom
+      .domain([50, 0]) // top to bottom
       .range([0, legendHeight]);
 
     legendSvg.append("g")
