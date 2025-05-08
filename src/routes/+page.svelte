@@ -78,10 +78,14 @@
 
   async function loadData() {
     // Load CSV and GeoJSON data
-    const singleFamilyCsv = await d3.csv(import.meta.env.BASE_URL + 'single_family_zoning/housing_sf_other_w_census.csv');
-    singleFamilyGeo = await fetch(import.meta.env.BASE_URL + 'single_family_zoning/housing_sf_other_w_census_reprojected.json').then(res => res.json());
-    const unitPriceCsv = await d3.csv(import.meta.env.BASE_URL + 'scatterplot/average_unit_price_by_municipality.csv');
-    const yearMuniAcc = await fetch(import.meta.env.BASE_URL + 'housing_timeline/year_municipality_accumulation_filtered.json').then(res => res.json());
+    // const singleFamilyCsv = await d3.csv(import.meta.env.BASE_URL + 'single_family_zoning/housing_sf_other_w_census.csv');
+    const singleFamilyCsv = await d3.csv('single_family_zoning/housing_sf_other_w_census.csv');
+    // singleFamilyGeo = await fetch(import.meta.env.BASE_URL + 'single_family_zoning/housing_sf_other_w_census_reprojected.json').then(res => res.json());
+    singleFamilyGeo = await fetch('single_family_zoning/housing_sf_other_w_census_reprojected.json').then(res => res.json());
+    // const unitPriceCsv = await d3.csv(import.meta.env.BASE_URL + 'scatterplot/average_unit_price_by_municipality.csv');
+    const unitPriceCsv = await d3.csv('scatterplot/average_unit_price_by_municipality.csv');
+    // const yearMuniAcc = await fetch(import.meta.env.BASE_URL + 'housing_timeline/year_municipality_accumulation_filtered.json').then(res => res.json());
+    const yearMuniAcc = await fetch('housing_timeline/year_municipality_accumulation_filtered.json').then(res => res.json());
 
     // Build CSV map
     singleFamilyCsvData = new Map();
@@ -338,6 +342,8 @@
 
   function updateBarChart(selectedYear) {
 
+    barSvg.selectAll(".muni-group").remove(); 
+
     const data = Array.from(timelineDataMap.entries())
       .map(([muni, entries]) => {
         return {
@@ -349,10 +355,16 @@
       })
       .filter(d => d && d.totalUnits > 0);
 
-  console.log("Bar Chart Data:", data);
+    // console.log("Bar Chart Data:", data);
 
-  // Update X and Y domain
-  barX.domain(data.map(d => d.muni));
+    // Update X and Y domain
+    barX.domain(data.map(d => d.muni));
+
+    // 🧱 Define how thick each "brick" is vertically
+    const brickHeightUnits = 200000; // 5000 housing units per brick (you can adjust)
+    const maxBricks = d3.max(data, d => Math.ceil(d.totalUnits / brickHeightUnits));
+
+  // barY.domain([0, brickHeightUnits * maxBricks]);
 
   barSvg.select(".x-axis")
     .transition()
@@ -368,31 +380,99 @@
     .duration(500)
     .call(d3.axisLeft(barY));
 
-  const bars = barSvg.selectAll(".bar")
+  // const bars = barSvg.selectAll(".bar")
+  //   .data(data, d => d.muni);
+
+  // bars.enter()
+  //   .append("rect")
+  //   .attr("class", "bar")
+  //   .attr("x", d => barX(d.muni))
+  //   .attr("width", barX.bandwidth())
+  //   .attr("y", barY(0)) // Start from 0 for animation
+  //   .attr("height", 0)
+  //   .attr("fill", "#69b3a2")
+  //   .transition()
+  //   .duration(500)
+  //   .attr("y", d => barY(d.totalUnits))
+  //   .attr("height", d => barY(0) - barY(d.totalUnits));
+
+  // bars.transition()
+  //   .duration(500)
+  //   .attr("x", d => barX(d.muni))
+  //   .attr("width", barX.bandwidth())
+  //   .attr("y", d => barY(d.totalUnits))
+  //   .attr("height", d => barY(0) - barY(d.totalUnits))
+  //   .attr("fill", "#69b3a2");
+
+  // bars.exit().remove();
+  const muniGroups = barSvg.selectAll(".muni-group")
     .data(data, d => d.muni);
 
-  bars.enter()
-    .append("rect")
-    .attr("class", "bar")
-    .attr("x", d => barX(d.muni))
+  const muniGroupsEnter = muniGroups.enter()
+    .append("g")
+    .attr("class", "muni-group")
+    .attr("transform", d => `translate(${barX(d.muni)},0)`);
+
+  // Remove old
+  muniGroups.exit().remove();
+
+  muniGroupsEnter.each(function(d) {
+  const group = d3.select(this);
+  const numBricks = Math.floor(d.totalUnits / brickHeightUnits);
+
+//   group.selectAll(".brick")
+//     .data(d3.range(numBricks)) // Create an array [0,1,2,...,numBricks-1]
+//     .enter()
+//     .append("rect")
+//     .attr("class", "brick")
+//     .attr("x", 0)
+//     .attr("width", barX.bandwidth())
+//     .attr("y", barY(0)) // Start at bottom
+//     .attr("height", 0) // Start collapsed
+//     .attr("fill", "#69b3a2")
+//     .transition()
+//     .duration(800)
+//     .delay((_, i) => i * 30) // slight delay per brick for rising animation
+//     .attr("y", (i) => barY((i + 1) * brickHeightUnits))
+//     .attr("height", (_, i) => barY(i * brickHeightUnits) - barY((i + 1) * brickHeightUnits));
+// });
+  //   const brickHeight = (barY(0) - barY(brickHeightUnits)); 
+  //   // How many pixels tall 1 brick should be
+
+  //   group.selectAll(".brick")
+  // .data(d3.range(numBricks))
+  // .enter()
+  // .append("image")
+  // .attr("xlink:href", (d, i) => (i % 2 === 0 ? "/images/lego_block.png" : "/images/lego_block.png")) // alternate colors
+  // .attr("width", barX.bandwidth())
+  // .attr("height", brickHeight)
+  // .attr("x", 0)
+  // .attr("y", () => barY(0)) // Start collapsed at bottom
+  // .transition()
+  // .duration(200)
+  // .delay((_, i) => i * 30)
+  // .attr("y", (i) => barY(d.totalUnits) + i * brickHeight);
+  // });
+
+  group.selectAll(".brick")
+    .data(d3.range(numBricks))
+    .enter()
+    .append("image")
+    .attr("xlink:href", "/images/lego_block.png") // 🧱 your lego piece
     .attr("width", barX.bandwidth())
-    .attr("y", barY(0)) // Start from 0 for animation
-    .attr("height", 0)
-    .attr("fill", "#69b3a2")
+    .attr("height", 90)  // 🧱 each brick height
+    .attr("x", 0)
+    .attr("y", barY(0))
     .transition()
-    .duration(500)
-    .attr("y", d => barY(d.totalUnits))
-    .attr("height", d => barY(0) - barY(d.totalUnits));
+    .duration(100)
+    .delay((_, i) => i * 30)
+    // .attr("y", (i) => barY((i) * brickHeightUnits));
+    .attr("y", (i) => barY((i + 6) * brickHeightUnits))
+  });
 
-  bars.transition()
-    .duration(500)
-    .attr("x", d => barX(d.muni))
-    .attr("width", barX.bandwidth())
-    .attr("y", d => barY(d.totalUnits))
-    .attr("height", d => barY(0) - barY(d.totalUnits))
-    .attr("fill", "#69b3a2");
 
-  bars.exit().remove();
+
+
 }
 
   function onTabChange(tabName) {
@@ -887,7 +967,6 @@
     }
   }
 
-
   function onIncomeChange(event) {
     selectedIncomeLevel = parseInt(event.target.value);
     updateIncomeLayer();
@@ -1292,7 +1371,9 @@
   <div class="section-header" style="font-size: 2.5rem; font-weight: bold; margin-bottom: 1.5rem; text-align: center;">The Evolution of Zoning in Boston</div>
 
   <div style="text-align: center; margin-bottom: 2rem;">
-    <img src="{import.meta.env.BASE_URL}images/zoninglaws.jpg" alt="Zoning Laws Timeline" 
+    <!-- <img src="{import.meta.env.BASE_URL}images/zoninglaws.jpg" alt="Zoning Laws Timeline" 
+      style="max-width: 100%; height: auto; border-radius: 12px; box-shadow: 0 4px 8px rgba(0,0,0,0.1);" /> -->
+    <img src="images/zoninglaws.jpg" alt="Zoning Laws Timeline" 
       style="max-width: 100%; height: auto; border-radius: 12px; box-shadow: 0 4px 8px rgba(0,0,0,0.1);" />
   </div>
 
@@ -1321,7 +1402,9 @@
           century-old zoning choices.
         </p >
         <div style="text-align: center; margin: 1.5rem 0;">
-          <img src="{import.meta.env.BASE_URL}images/figure1.jpg" alt="Zoning Impact"
+          <!-- <img src="{import.meta.env.BASE_URL}images/figure1.jpg" alt="Zoning Impact"
+            style="max-width: 100%; height: auto; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);" /> -->
+          <img src="images/figure1.jpg" alt="Zoning Impact"
             style="max-width: 100%; height: auto; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);" />
         </div>
       </div>
@@ -1400,12 +1483,18 @@
     </div>
   </section>
 
-    <section id="price" class="alt-bg">
-      <div class="scatterplot-fullwidth">
+  <section id="price" class="alt-bg">
+    <div style="display: flex; flex-wrap: wrap; gap: 2rem; align-items: stretch; min-height: 100vh;">
+      <!-- LEFT: Text Content -->
+      <div style="flex: 1; min-width: 300px; background-color: rgba(255, 255, 255, 0.9); padding: 2rem; display: flex; flex-direction: column; justify-content: space-between;">
+        <div class="section-header">Affordability Explorer</div>
+      </div>
+
+      <!-- RIGHT: Scatterplot -->
+      <div style="flex: 2; min-width: 500px; padding: 2rem 6rem 2rem 2rem;">
         <div class="scatterplot-title">Average Household Income vs. Unit Purchase Price</div>
         <div class="scatterplot-subtitle">Hover over each dot to see which municipality it represents.</div>
     
-        <!-- ✅ ADD SEARCH INPUT HERE -->
         <div style="margin-bottom: 20px; text-align: center;">
           <select id="searchSelect" class="form-select" style="width: 300px;" on:change={onSearch}>
             <option value="">Select Municipality...</option>
@@ -1414,59 +1503,74 @@
             {/each}
           </select>                 
         </div>
-    
-        <div id="scatterplot"></div> <!-- scatterplot container -->
-      </div>
-    </section>      
 
-    <section id="timeline">
-      <div class="section-header">Emergence of New Housing Over Time</div>
-      <!-- Flex Row: Search + Year slider -->
-      <div class="container-fluid d-flex justify-content-between align-items-center mb-4" style="max-width: 1200px; padding: 0 2rem;">
-        <!-- Left: Search Box -->
-        <div class="d-flex align-items-center gap-2">
-          <!-- <input
-            type="text"
-            placeholder="Search municipality..."
-            class="search-box"
-            bind:value={searchQuery}
-            on:input={onSearch}
-          /> -->
+        <div style="padding: 1rem; background-color: white; border-radius: 12px;">
+          <div id="scatterplot" style="position: relative;"></div>
         </div>
-    
-        <!-- Right: Year Label + Slider -->
-        <div class="d-flex align-items-center gap-3">
-          <span class="fw-bold" style="font-size: 1rem;">Year Selected: {selectedYear}</span>
-          <div class="slider-wrapper" style="width: 450px;">
-            <div class="slider-track">
-              <!-- (optional tick marks, similar to income slider) -->
+      </div>
+  </section>      
+
+  <section id="timeline" class="alt-bg">
+    <div style="display: flex; flex-wrap: wrap; gap: 2rem; align-items: stretch; min-height: 100vh;">
+      <!-- LEFT: Text Content -->
+      <div style="flex: 1; min-width: 300px; background-color: rgba(255, 255, 255, 0.9); padding: 2rem; display: flex; flex-direction: column; justify-content: space-between;">
+        <div class="section-header">Emergence of New Housing Over Time</div>
+      </div>
+      <!-- RIGHT: Timeline Map -->
+      <div style="flex: 2; min-width: 500px; padding: 2rem 6rem 2rem 2rem;">
+        <!-- Flex Row: Search + Year slider -->
+        <div class="container-fluid d-flex justify-content-between align-items-center mb-4" style="max-width: 1200px; padding: 0 2rem;">
+          <!-- Left: Search Box -->
+          <div class="d-flex align-items-center gap-2">
+            <!-- <input
+              type="text"
+              placeholder="Search municipality..."
+              class="search-box"
+              bind:value={searchQuery}
+              on:input={onSearch}
+            /> -->
+          </div>
+      
+          <!-- Right: Year Label + Slider -->
+          <div class="d-flex align-items-center gap-3">
+            <span class="fw-bold" style="font-size: 1rem;">Year Selected: {selectedYear}</span>
+            <div class="slider-wrapper" style="width: 450px;">
+              <div class="slider-track">
+                <!-- (optional tick marks, similar to income slider) -->
+              </div>
+              <input
+                type="range"
+                min="1980"
+                max="2025"
+                step="1"
+                bind:value={selectedYear}
+                on:input={onTimelineChange}
+                class="form-range custom-slider"
+              />
             </div>
-            <input
-              type="range"
-              min="1980"
-              max="2025"
-              step="1"
-              bind:value={selectedYear}
-              on:input={onTimelineChange}
-              class="form-range custom-slider"
-            />
           </div>
         </div>
-    
-      </div>
-    
-      <!-- Map Container -->
-      <div class="d-flex justify-content-center">
-        <div class="box" style="height: 600px; width: 100%; max-width: 1200px; background-color: #e9e3d9;">
-          <div id="timeline-map" style="position: relative; height: 100%; width: 100%;">
-            <!-- Timeline Mapbox will go here -->
+      
+        <!-- Map Container -->
+        <div class="d-flex justify-content-center">
+          <div class="box" style="height: 600px; width: 100%; max-width: 1200px; background-color: #e9e3d9;">
+            <div id="timeline-map" style="position: relative; height: 100%; width: 100%;">
+              <!-- Timeline Mapbox will go here -->
+            </div>
           </div>
         </div>
       </div>
-    </section>    
+    </div>
+  </section>    
 
-    <section id="map" class="alt-bg">
-        <div class="section-header">Interactive Housing Explorer</div>
+  <section id="map" class="alt-bg">
+    <div style="display: flex; flex-wrap: wrap; gap: 2rem; align-items: stretch; min-height: 100vh;">
+      <!-- LEFT: Text Content -->
+      <div style="flex: 1; min-width: 300px; background-color: rgba(255, 255, 255, 0.9); padding: 2rem; display: flex; flex-direction: column; justify-content: space-between;">
+        <div class="section-header">Housing Explorer</div>
+      </div>
+      <!-- RIGHT: Map -->
+      <div style="flex: 2; min-width: 500px; padding: 2rem 6rem 2rem 2rem;">
         <!-- Tabs and Slider side-by-side -->
         <div class="container-fluid d-flex justify-content-between align-items-center mb-4" style="max-width: 1600px; padding: 0 2rem;">
           <ul class="nav nav-tabs" id="housingTabs" role="tablist">
@@ -1641,30 +1745,10 @@
             </div>
           </div>
         </div>
-        <!-- <div class="analysis-box">
-        [ What do you notice about access, demographics, and income distribution? ]
-        </div> -->
-    </section>
+      </div>
+    </div>
+  </section>
 
-    <!-- <section id="zoning">
-        <div class="section-header">Zoning Compliance & Demographics</div>
-        <div class="box text-center" style="height: 400px;">
-        [ Choropleth Map Placeholder ]
-        </div>
-        <div class="analysis-box">
-        [ Are non-compliant zones overlapping with certain racial or income groups? ]
-        </div>
-    </section> -->
-  
-    <!-- <section id="development" class="alt-bg">
-        <div class="section-header">New Housing Development</div>
-        <div class="box text-center" style="height: 400px;">
-        [ New Development Map Placeholder ]
-        </div>
-        <div class="analysis-box">
-        [ What policies have worked? Where are gaps? Tie in back to zoning reform goals. ]
-        </div>
-    </section> -->
 </main>
   
 <footer>
@@ -1695,14 +1779,14 @@
   .nav-dots {
       position: fixed;
       top: 50%;
-      left: 2rem;
+      right: 2rem;
       transform: translateY(-50%);
       z-index: 1000;
   }
 
   .nav-dots a {
       display: block;
-      margin: 1rem 0;
+      margin: 1.5rem 0;
       width: 14px;
       height: 14px;
       border-radius: 50%;
@@ -1716,7 +1800,7 @@
   .nav-dots a::after {
     content: attr(data-tooltip);
     position: absolute;
-    left: 24px;
+    right: 24px;
     top: 50%;
     transform: translateY(-50%);
     background: rgba(60, 60, 60, 0.85);
@@ -1733,7 +1817,7 @@
 /* Show tooltip on hover */
 .nav-dots a:hover::after {
   opacity: 1;
-  transform: translateY(-50%) translateX(5px);
+  transform: translateY(-50%) translateX(-5px);
 }
 
   .nav-dots a:hover,
@@ -1742,7 +1826,8 @@
   }
 
   section {
-      padding: 6rem 4rem;
+      /* padding: 6rem 4rem; */
+      /* padding: 0rem 2rem; */
       border-bottom: 1px solid #e0d6c6;
       min-height: 100vh;
       display: flex;
