@@ -243,20 +243,32 @@
     const circles = d3.select("#scatterplot svg g").selectAll("circle");
 
     circles
-      .attr("r", d => (d.muni === selectedMuni ? 11 : 7))
+      .attr("r", d => (d.muni === selectedMuni ? 10 : 6))
       .attr("stroke-width", d => (d.muni === selectedMuni ? 1.5 : 0.1))
       .attr("opacity", d => (d.muni === selectedMuni ? 1 : 0.85));
 
     if (selectedMuni) {
       const match = scatterData.find(d => d.muni === selectedMuni);
 
-      tooltip.transition().duration(200).style("opacity", 0.9);
-      tooltip.html(`
-        <strong>${match.muni}</strong><br/>
-        <b>Avg Income:</b> ${formatMillions(match.avgIncome)}<br/>
-        <b>Avg Unit Price:</b> ${formatMillions(match.avgUnitPrice)}<br/>
-        <b>Years to Pay Off:</b> ${match.yearsToPayoff.toFixed(1)}
-      `);
+      // tooltip.transition().duration(200).style("opacity", 0.9);
+      // tooltip.html(`
+      //   <strong>${match.muni}</strong><br/>
+      //   <b>Avg Income:</b> ${formatMillions(match.avgIncome)}<br/>
+      //   <b>Avg Unit Price:</b> ${formatMillions(match.avgUnitPrice)}<br/>
+      //   <b>Years to Pay Off*:</b> ${match.yearsToPayoff.toFixed(1)}
+      // `);
+
+      // Update the left info box
+      const infoBox = document.getElementById("municipality-info");
+      if (infoBox) {
+        infoBox.innerHTML = `
+          <strong>${match.muni}</strong><br/>
+          <b>Avg Income:</b> ${formatMillions(match.avgIncome)}<br/>
+          <b>Avg Unit Price:</b> ${formatMillions(match.avgUnitPrice)}<br/>
+          <b>Years to Pay Off*:</b> ${match.yearsToPayoff.toFixed(1)}
+        `;
+      }
+
 
       const svgElement = document.querySelector("#scatterplot svg");
       const pt = svgElement.createSVGPoint();
@@ -1042,7 +1054,9 @@
     // X Axis
     svg.append("g")
       .attr("transform", `translate(0,${height})`)
-      .call(d3.axisBottom(x).tickFormat(d3.format("$.2s")));
+      .call(d3.axisBottom(x).tickFormat(d3.format("$.2s")))
+      .selectAll("text")
+      .style("font-size", "12px");
 
     svg.append("text")
       .attr("x", width / 2)
@@ -1053,7 +1067,9 @@
 
     // Y Axis
     svg.append("g")
-      .call(d3.axisLeft(y).tickFormat(d => d >= 1000000 ? `$${d/1000000}M` : d3.format("$.2s")(d)));
+      .call(d3.axisLeft(y).tickFormat(d => d >= 1000000 ? `$${d/1000000}M` : d3.format("$.2s")(d)))
+      .selectAll("text")
+      .style("font-size", "12px");
 
     svg.append("text")
       .attr("transform", "rotate(-90)")
@@ -1075,12 +1091,19 @@
       // Reset all circles appearance
       const circles = d3.select("#scatterplot svg g").selectAll("circle");
       circles
-        .attr("r", 7)
+        .attr("r", 6)
         .attr("stroke-width", 0.1)
         .attr("opacity", 0.85);
 
       // Hide tooltip
       tooltip.transition().duration(300).style("opacity", 0);
+
+      // Clear left box
+      const infoBox = document.getElementById("municipality-info");
+      if (infoBox) {
+        infoBox.innerHTML = `<em>No municipality selected.</em>`;
+      }
+
 
       // Reset dropdown to placeholder
       const selectElement = document.getElementById("searchSelect");
@@ -1096,7 +1119,7 @@
       .append("circle")
       .attr("cx", d => x(d.avgIncome))
       .attr("cy", d => y(d.avgUnitPrice))
-      .attr("r", 7) // 🌟 Bigger dots
+      .attr("r", 6) // 🌟 Bigger dots
       .attr("fill", d => (d.yearsToPayoff !== null ? color(Math.min(d.yearsToPayoff, 50)) : "#ccc")) 
       .attr("stroke", "black")        // 👈 add this line
       .attr("stroke-width", 0.1)      // 👈 very thin outline
@@ -1124,7 +1147,7 @@
         <strong>${d.muni}</strong><br/>
         <b>Avg Income:</b> ${formatMillions(d.avgIncome)}<br/>
         <b>Avg Unit Price:</b> ${formatMillions(d.avgUnitPrice)}<br/>
-        <b>Years to Pay Off:</b> ${d.yearsToPayoff.toFixed(1)}
+        <b>Years to Pay Off*:</b> ${d.yearsToPayoff.toFixed(1)}
       `)
         .style("left", (event.clientX - scatterplotRect.left + 10) + "px")
         .style("top", (event.clientY - scatterplotRect.top - 20) + "px");
@@ -1137,6 +1160,39 @@
     })
     .on("mouseout", () => {
       tooltip.transition().duration(300).style("opacity", 0);
+    });
+
+    // Click to select a municipality
+    svg.selectAll("circle")
+    .on("click", (event, d) => {
+      selectedMuni = d.muni;
+
+      // Update circle appearance
+      const circles = d3.select("#scatterplot svg g").selectAll("circle");
+      circles
+        .attr("r", c => (c.muni === selectedMuni ? 10 : 6))
+        .attr("stroke-width", c => (c.muni === selectedMuni ? 1.5 : 0.1))
+        .attr("opacity", c => (c.muni === selectedMuni ? 1 : 0.85));
+
+      // Move selected circle to front
+      circles.filter(c => c.muni === selectedMuni).raise();
+
+      // Update dropdown selection
+      const selectElement = document.getElementById("searchSelect");
+      if (selectElement) {
+        selectElement.value = selectedMuni;
+      }
+
+      // Update the left info box
+      const infoBox = document.getElementById("municipality-info");
+      if (infoBox) {
+        infoBox.innerHTML = `
+          <strong>${d.muni}</strong><br/>
+          <b>Avg Income:</b> ${formatMillions(d.avgIncome)}<br/>
+          <b>Avg Unit Price:</b> ${formatMillions(d.avgUnitPrice)}<br/>
+          <b>Years to Pay Off*:</b> ${d.yearsToPayoff.toFixed(1)}
+        `;
+      }
     });
 
 
@@ -1168,7 +1224,7 @@
     lineLegend.append("text")
       .attr("x", 50)
       .attr("y", 15)
-      .text("Units purchasable with 10 years income")
+      .text("Units purchasable with 10 years income*")
       .style("font-size", "12px")
       .style("alignment-baseline", "middle")
       .attr("fill", "#555");
@@ -1226,7 +1282,7 @@
       .attr("y", -20)
       .attr("text-anchor", "start")
       .style("font-size", "12px")
-      .text("Years to Pay Off");
+      .text("Years to Pay Off*");
   }
 
   onMount(async () => {
@@ -1488,26 +1544,68 @@
       <!-- LEFT: Text Content -->
       <div style="flex: 1; min-width: 300px; background-color: rgba(255, 255, 255, 0.9); padding: 2rem; display: flex; flex-direction: column; justify-content: space-between;">
         <div class="section-header">Affordability Explorer</div>
-      </div>
+        <!-- Top Box: Key Takeaway -->
+        <div style="flex: 0 0 180px; border: 1px solid #ccc; border-radius: 8px; padding: 1rem; background: #fff;">
+          <h4>Key Takeaway</h4>
+          <p>Summary of the scatterplot...</p>
+          <ul>
+            <li>Income vs Price</li>
+            <li>Affordability assumptions</li>
+          </ul>
+        </div>
+
+        <!-- Bottom Box: Municipality Info -->
+        <div style="flex: 1; border: 1px solid #ccc; border-radius: 8px; padding: 1rem; background: #fff; overflow-y: auto;">
+          <h4>Selected Municipality</h4>
+          <div id="municipality-info">
+            <div id="municipality-stats">
+              <em>No municipality selected.</em>
+            </div>
+          
+            <!-- Graphs go here -->
+            <div id="municipality-graphs" style="margin-top: 1rem; display: none;">
+              <div style="display: flex; flex-wrap: wrap; gap: 1rem; justify-content: space-between;">
+                <div style="flex: 1; min-width: 150px;">
+                  <h6 style="text-align: center;">Lot Size (sqft)</h6>
+                  <svg id="lot-size-chart" width="100%" height="120"></svg>
+                </div>
+                <div style="flex: 1; min-width: 150px;">
+                  <h6 style="text-align: center;">Zoning Compliance</h6>
+                  <svg id="compliance-chart" width="100%" height="120"></svg>
+                </div>
+                <div style="flex: 1; min-width: 150px;">
+                  <h6 style="text-align: center;">Avg FAR</h6>
+                  <svg id="far-chart" width="100%" height="120"></svg>
+                </div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+            </div>
 
       <!-- RIGHT: Scatterplot -->
       <div style="flex: 2; min-width: 500px; padding: 2rem 6rem 2rem 2rem;">
-        <div class="scatterplot-title">Average Household Income vs. Unit Purchase Price</div>
-        <div class="scatterplot-subtitle">Hover over each dot to see which municipality it represents.</div>
-    
-        <div style="margin-bottom: 20px; text-align: center;">
-          <select id="searchSelect" class="form-select" style="width: 300px;" on:change={onSearch}>
-            <option value="">Select Municipality...</option>
-            {#each [...scatterData].sort((a, b) => a.muni.localeCompare(b.muni)) as d}
-              <option value={d.muni}>{d.muni}</option>
-            {/each}
-          </select>                 
-        </div>
+        <div style="background-color: white; border-radius: 12px; padding: 2rem; box-shadow: 0 2px 8px rgba(0,0,0,0.05);">
+          <div style="margin-bottom: 20px; text-align: center;">
+            <select id="searchSelect" class="form-select" style="width: 300px;" on:change={onSearch}>
+              <option value="">Select Municipality...</option>
+              {#each [...scatterData].sort((a, b) => a.muni.localeCompare(b.muni)) as d}
+                <option value={d.muni}>{d.muni}</option>
+              {/each}
+            </select>                 
+          </div>
 
-        <div style="padding: 1rem; background-color: white; border-radius: 12px;">
-          <div id="scatterplot" style="position: relative;"></div>
+          <div style="padding: 1rem;">
+            <div id="scatterplot" style="position: relative;"></div>
+          </div>
+
+          <div style="font-size: 0.75rem; color: #555; margin-top: 1rem; text-align: left;">
+            * We assume a 9% down payment for first-time home buyers (<a href="https://www.nerdwallet.com/article/mortgages/average-down-payment-on-a-house" target="_blank" style="color: #555; text-decoration: underline;">source</a>) and 28% of salary allocated to mortgage payments (<a href="https://www.chase.com/personal/mortgage/education/financing-a-home/what-percentage-income-towards-mortgage" target="_blank" style="color: #555; text-decoration: underline;">source</a>).
+          </div>
         </div>
       </div>
+
   </section>      
 
   <section id="timeline" class="alt-bg">
@@ -1837,7 +1935,7 @@
 
   .section-header {
       font-family: 'Montserrat', sans-serif;
-      font-size: 2.5rem;
+      font-size: 2rem;
       font-weight: 700;
       text-align: center;
       margin-bottom: 2rem;
