@@ -569,7 +569,10 @@
         data: updatedGeojson
       });
 
-      // Main colored fill layer
+      const labelLayerId = zoningMap.getStyle().layers.find(
+        l => l.type === 'symbol' && l.layout?.['text-field']
+      )?.id;
+
       zoningMap.addLayer({
         id: 'income-layer',
         type: 'fill',
@@ -579,17 +582,16 @@
             'interpolate',
             ['linear'],
             ['get', 'income_value'],
-            0, '#e0f3db',
-            0.1, '#a8ddb5',
-            0.2, '#7bccc4',
-            0.4, '#43a2ca',
-            0.6, '#0868ac',
-            0.8, '#084081'
+            0.0,  '#ffffb2',
+            0.25, '#fdbb84',
+            0.5,  '#fc4e2a',
+            0.75, '#9932cc',
+            1.0,  '#4b0082'
           ],
-          'fill-opacity': 1,
+          'fill-opacity': 0.7,
           'fill-outline-color': '#fff'
         }
-      });
+      }, labelLayerId); // 👈 this ensures income-layer is added *below* labels
 
       // Hover outline layer (dark green)
       zoningMap.addLayer({
@@ -597,11 +599,11 @@
         type: 'line',
         source: 'income-source',
         paint: {
-          'line-color': '#006400', // DARK GREEN color
+          'line-color': '#801fb8', // DARK GREEN color
           'line-width': [
             'case',
             ['boolean', ['feature-state', 'hover'], false],
-            3,
+            2,
             0
           ]
         }
@@ -724,6 +726,10 @@
       });
 
       // Add fill layer
+      const labelLayerId = zoningMap.getStyle().layers.find(
+        l => l.type === 'symbol' && l.layout?.['text-field']
+      )?.id;
+
       zoningMap.addLayer({
         id: 'demo-layer',
         type: 'fill',
@@ -733,17 +739,17 @@
             'interpolate',
             ['linear'],
             ['get', 'demo_value'],
-            0, '#f7fbff',        // very pale blue (0%)
-            0.1, '#d2e3f3',      // light blue
-            0.3, '#a6bddb',      // mid blue
-            0.5, '#74a9cf',      // medium-deep blue
-            0.7, '#2b8cbe',      // deep blue
-            0.9, '#045a8d'       // dark blue
+            0,   '#c6dbef',
+            0.2, '#9ecae1',
+            0.4, '#6baed6',
+            0.6, '#4292c6',
+            0.8, '#2171b5',
+            1.0, '#084594'
           ],
-          'fill-opacity': 1,
+          'fill-opacity': 0.7,
           'fill-outline-color': '#fff'
         }
-      });
+      }, labelLayerId);  // 👈 Insert below the first label layer
 
       // Add hover layer
       zoningMap.addLayer({
@@ -755,7 +761,7 @@
           'line-width': [
             'case',
             ['boolean', ['feature-state', 'hover'], false],
-            3,
+            2,
             0
           ]
         }
@@ -876,6 +882,10 @@
       });
 
       // Add fill layer
+      const labelLayerId = zoningMap.getStyle().layers.find(
+        l => l.type === 'symbol' && l.layout?.['text-field']
+      )?.id;
+
       zoningMap.addLayer({
         id: 'family-layer',
         type: 'fill',
@@ -885,18 +895,18 @@
             'interpolate',
             ['linear'],
             ['get', 'family_value'],
-            0, '#fff7ec',     // very pale orange (near white)
-            0.02, '#fee8c8',  // pale orange
-            0.05, '#fdbb84',  // orange
-            0.1, '#fc8d59',   // darker orange
-            0.2, '#ef6548',   // red-orange
-            0.4, '#d7301f',   // red
-            0.6, '#990000'    // dark red
+            0,    '#fddbc7',  // deeper than before, light coral
+            0.05, '#fcae91',  // orange-coral
+            0.15, '#fb6a4a',  // rich orange-red
+            0.3,  '#de2d26',  // red
+            0.5,  '#a50f15',  // dark red
+            0.7,  '#7f0000',  // very dark red
+            1.0,  '#4d0000'   // almost maroon (deepest)
           ],
-          'fill-opacity': 1,
+          'fill-opacity': 0.7,
           'fill-outline-color': '#fff'
         }
-      });
+      }, labelLayerId);  // 👈 Insert below label layer
 
       // Add hover layer
       zoningMap.addLayer({
@@ -904,11 +914,11 @@
         type: 'line',
         source: 'family-source',
         paint: {
-          'line-color': '#000', // black outline on hover
+          'line-color': '#801fb8', // black outline on hover
           'line-width': [
             'case',
             ['boolean', ['feature-state', 'hover'], false],
-            3,
+            2,
             0
           ]
         }
@@ -1234,21 +1244,35 @@
     await initScatterplot();
     await initZoningMap();
     await initBarChart();
-    updateBarChart(selectedYear);
+    await updateBarChart(selectedYear);
 
-    // // ✨ Animate the scatterplot when it scrolls into view
-    // const scatterplot = document.getElementById('scatterplot');
+    const sections = document.querySelectorAll("section");
+    const navLinks = document.querySelectorAll(".nav-dots a");
 
-    // function onScroll() {
-    //   const rect = scatterplot.getBoundingClientRect();
-    //   if (rect.top < window.innerHeight - 100) { // 100px before fully appearing
-    //     scatterplot.classList.add('scatterplot-animate');
-    //     window.removeEventListener('scroll', onScroll); // Only trigger once
-    //   }
-    // }
+    function activateCurrentNavDot() {
+      const scrollPos = window.scrollY + window.innerHeight / 2;
 
-    // window.addEventListener('scroll', onScroll);
-    // onScroll(); // in case already visible
+      let currentSection = sections[0]; // fallback
+      for (const section of sections) {
+        const rect = section.getBoundingClientRect();
+        const sectionTop = window.scrollY + rect.top;
+        const sectionBottom = sectionTop + rect.height;
+
+        if (scrollPos >= sectionTop && scrollPos < sectionBottom) {
+          currentSection = section;
+          break;
+        }
+      }
+
+      navLinks.forEach(link => link.classList.remove("active"));
+
+      const activeId = currentSection.getAttribute("id");
+      const activeLink = [...navLinks].find(link => link.getAttribute("href") === `#${activeId}`);
+      if (activeLink) activeLink.classList.add("active");
+    }
+
+    window.addEventListener("scroll", activateCurrentNavDot);
+    await activateCurrentNavDot(); // Trigger once on load
   });
 
 </script>
@@ -1567,120 +1591,86 @@
     <div style="display: flex; flex-wrap: wrap; gap: 2rem; align-items: stretch; min-height: 100vh;">
       <!-- LEFT: Text Content -->
       <div style="flex: 1; min-width: 300px; background-color: rgba(255, 255, 255, 0.9); padding: 2rem; display: flex; flex-direction: column; justify-content: space-between;">
-        <div class="section-header">Housing Explorer</div>
+        <div class="section-header">Housing Access Across Communities</div>
       </div>
       <!-- RIGHT: Map -->
-      <div style="flex: 2; min-width: 500px; padding: 2rem 6rem 2rem 2rem;">
-        <!-- Tabs and Slider side-by-side -->
-        <div class="container-fluid d-flex justify-content-between align-items-center mb-4" style="max-width: 1600px; padding: 0 2rem;">
-          <ul class="nav nav-tabs" id="housingTabs" role="tablist">
+      <div style="flex: 2; min-width: 500px; padding: 3rem 6rem 2rem 2rem; display: flex; flex-direction: column; align-items: center;">
+        <!-- Combined Row: Tabs (left) + Selector (right) -->
+        <div style="width: 100%; max-width: 1200px; margin-bottom: 1.5rem; display: flex; justify-content: space-between; flex-wrap: wrap; gap: 1rem; font-size: 0.9rem;">
+          <!-- Tabs -->
+          <ul class="nav nav-tabs mb-0" id="housingTabs" role="tablist">
             <li class="nav-item" role="presentation">
-              <button 
-                class="nav-link custom-tab" 
-                class:active={activeTab === 'income'} 
-                type="button" 
-                on:click={() => onTabChange('income')}
-              >
-                By Income
-              </button>
+              <button class="nav-link custom-tab" class:active={activeTab === 'income'} type="button" on:click={() => onTabChange('income')}>By Income</button>
             </li>
             <li class="nav-item" role="presentation">
-              <button 
-                class="nav-link custom-tab"
-                class:active={activeTab === 'demographics'}
-                type="button"
-                on:click={() => onTabChange('demographics')}
-              >
-                By Demographics
-              </button>
+              <button class="nav-link custom-tab" class:active={activeTab === 'demographics'} type="button" on:click={() => onTabChange('demographics')}>By Demographics</button>
             </li>
             <li class="nav-item" role="presentation">
-              <button 
-                class="nav-link custom-tab" 
-                class:active={activeTab === 'family'}
-                type="button" 
-                on:click={() => onTabChange('family')}
-              >
-                By Family Size
-              </button>
+              <button class="nav-link custom-tab" class:active={activeTab === 'family'} type="button" on:click={() => onTabChange('family')}>By Family Size</button>
             </li>
           </ul>
-          <!-- Switch between percentage and raw counts-->
-          <div class="density-toggle-switch">
-            <input 
-              type="checkbox" 
-              id="densitySwitch" 
-              class="toggle-input" 
-              bind:checked={usePercentage}
-              on:change={() => { onTabChange(activeTab); }}
-            />
-            <label class="toggle-label" for="densitySwitch">
-              <span class="toggle-text">{usePercentage ? 'Density (%)' : 'Absolute #'}</span>
-              <span class="toggle-thumb"></span>
-            </label>
-          </div>                        
-          <!-- Slider for Income Level -->
-          {#if activeTab === 'income'}
-          <div class="d-flex align-items-center gap-3">
-            <label for="incomeRange" class="form-label fw-bold mb-0" style="min-width: 120px;">Income Level</label>
-            <div class="slider-wrapper">
-              <div class="slider-track">
-                <div class="slider-segment"></div>
-                <div class="slider-segment"></div>
-                <div class="slider-segment"></div>
-                <div class="slider-segment"></div>
-                <div class="slider-segment"></div>
+
+          <!-- Conditional Selector -->
+          <div style="display: flex; align-items: center; gap: 0.75rem;">
+            {#if activeTab === 'income'}
+              <label for="incomeRange" class="form-label fw-bold mb-0">Income Level</label>
+              <div class="slider-wrapper" style="width: 350px;">
+                <div class="slider-track">
+                  <div class="slider-segment"></div>
+                  <div class="slider-segment"></div>
+                  <div class="slider-segment"></div>
+                  <div class="slider-segment"></div>
+                  <div class="slider-segment"></div>
+                </div>
+                <input id="incomeRange" type="range" min="0" max="5" step="1" on:input={onIncomeChange} class="form-range custom-slider" />
+                <div class="slider-labels">
+                  <span>&lt;25k</span><span>25k–50k</span><span>50k–100k</span><span>100k–150k</span><span>150k–200k</span><span>&gt;200k</span>
+                </div>
               </div>
-              <input
-                id="incomeRange"
-                type="range"
-                min="0"
-                max="5"
-                step="1"
-                on:input={onIncomeChange}
-                class="form-range custom-slider"
-              />
-              <div class="slider-labels">
-                <span>&lt;25k</span>
-                <span>25k–50k</span>
-                <span>50k–100k</span>
-                <span>100k–150k</span>
-                <span>150k–200k</span>
-                <span>&gt;200k</span>
-              </div>
-            </div>
-          </div>       
-          {/if}
-          <!-- Drop down menu for demo groups-->
-          {#if activeTab === 'demographics'}
-            <div class="d-flex align-items-center gap-3">
-              <label for="demographicSelect" class="form-label fw-bold mb-0" style="min-width: 150px;">Demographic Type</label>
+            {/if}
+            {#if activeTab === 'demographics'}
+              <label for="demographicSelect" class="form-label fw-bold mb-0">Demographic Type</label>
               <select id="demographicSelect" class="form-select" style="width: 300px;" on:change={onDemographicChange}>
                 {#each Object.keys(demographicColumns) as demo}
                   <option value={demo}>{demo}</option>
                 {/each}
               </select>
-            </div>
-          {/if}
-          <!-- Drop down for family size -->
-          {#if activeTab === 'family'}
-            <div class="d-flex align-items-center gap-3">
-              <label for="familySizeSelect" class="form-label fw-bold mb-0" style="min-width: 150px;">Select Family Size</label>
+            {/if}
+            {#if activeTab === 'family'}
+              <label for="familySizeSelect" class="form-label fw-bold mb-0">Family Size</label>
               <select id="familySizeSelect" class="form-select" style="width: 300px;" on:change={onFamilySizeChange}>
                 {#each Object.keys(familySizeOptions) as sizeLabel}
                   <option value={sizeLabel}>{sizeLabel}</option>
                 {/each}
               </select>
-            </div>
-          {/if}
+            {/if}
+          </div>
         </div>
 
-        <div class="tab-content">
+        <div class="tab-content" style="width: 100%; max-width: 1200px;">
           <!-- By Income Tab -->
-          <div class="tab-pane fade show active" id="income" role="tabpanel">
-            <div class="d-flex justify-content-center">
-              <div class="box" style="height: 600px; width: 100%; max-width: 1200px; background-color: #e9e3d9;">
+          <div class="tab-pane fade show active" id="income" role="tabpanel" >
+            <div style="display: flex; justify-content: center; width: 100%;">
+              <div class="box" style="height: 600px; width: 100%; background-color: #e9e3d9;">
                 <div id="income-map" style="position: relative; height: 100%; width: 100%;">
+                  <!-- Density toggle in top-left corner of map -->
+                  <div style="position: absolute; top: 16px; left: 16px; z-index: 10;">
+                    <div class="density-toggle-switch">
+                      <input 
+                        type="checkbox" 
+                        id="densitySwitch" 
+                        class="toggle-input" 
+                        bind:checked={usePercentage}
+                        on:change={() => { onTabChange(activeTab); }}
+                      />
+                      <label class="toggle-label" style="font-size: 0.9rem" for="densitySwitch">
+                        <span class="toggle-text">{usePercentage ? 'Density (%)' : 'Absolute #'}</span>
+                        <span class="toggle-thumb"></span>
+                      </label>
+                    </div>
+                  </div>
+            
+                  <!-- Legend and hover-info -->
                   <div id="legend">
                     {#if activeTab === 'income'}
                       <div class="income-legend-gradient"></div>
@@ -1691,22 +1681,22 @@
                     {/if}
                     <div class="legend-labels">
                       {#if usePercentage}
-                        <span>0%</span>
-                        <span>50%</span>
-                        <span>100%</span>
+                        <span class="legend-label top">100%</span>
+                        <span class="legend-label middle">50%</span>
+                        <span class="legend-label bottom">0%</span>
                       {:else}
-                        <span>0</span>
-                        <span>mid</span>
-                        <span>high</span>
+                        <span class="legend-label top">high</span>
+                        <span class="legend-label middle">mid</span>
+                        <span class="legend-label bottom">0</span>
                       {/if}
-                    </div>
+                    </div>                    
                   </div>
                   <div id="hover-info" class="info-box">
                     <i>Hover over a municipality</i>
-                  </div>                  
-                </div>                
+                  </div>
+                </div>
               </div>
-            </div>
+            </div>            
           </div>          
 
           <!-- By Demographics Tab -->
@@ -1759,13 +1749,13 @@
   @import url('https://fonts.googleapis.com/css2?family=Lato:wght@400;700&family=Montserrat:wght@700&display=swap');
 
   :root {
-    --primary-warm: #e98b6d;   /* Soft coral */
-    --secondary-warm: #f3ebe3; /* Sand Beige */
-    --accent-deep: #a74a44;    /* Brick Red */
-    --neutral-main: #7c6757;   /* Deep Taupe */
-    --neutral-light: #dad2c9;  /* Soft Gray */
-    --accent-hope: #a6b9a3;    /* Sage Green */
-  }
+  --primary-warm: #deb7b0;     /* Muted Rose */
+  --secondary-warm: #f4edea;   /* Soft Blush Beige */
+  --accent-deep: #a68ba5;      /* Dusty Mauve */
+  --neutral-main: #6f5a69;     /* Muted Plum Taupe */
+  --neutral-light: #e4dce6;    /* Pale Lilac Gray */
+  --accent-hope: #baa6d0;      /* Lavender */
+}
 
   main {
       font-family: 'Lato', sans-serif;
@@ -1814,30 +1804,34 @@
     transition: opacity 0.3s, transform 0.3s;
   }
 
-/* Show tooltip on hover */
-.nav-dots a:hover::after {
-  opacity: 1;
-  transform: translateY(-50%) translateX(-5px);
-}
+  /* Show tooltip on hover */
+  .nav-dots a:hover::after {
+    opacity: 1;
+    transform: translateY(-50%) translateX(-5px);
+  }
 
-  .nav-dots a:hover,
-  .nav-dots a.active {
-      background-color: var(--accent-hope);
+  .nav-dots a:hover {
+    background-color: var(--accent-hope);
+  }
+
+  :global(.nav-dots a.active) {
+    background-color: #baa6d0 !important; /* pastel purple */
+    transform: scale(1.3);
   }
 
   section {
-      /* padding: 6rem 4rem; */
-      /* padding: 0rem 2rem; */
-      border-bottom: 1px solid #e0d6c6;
-      min-height: 100vh;
-      display: flex;
-      flex-direction: column;
-      justify-content: center;
+    /* padding: 6rem 4rem; */
+    /* padding: 0rem 2rem; */
+    border-bottom: 1px solid #e0d6c6;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
   }
 
   .section-header {
       font-family: 'Montserrat', sans-serif;
-      font-size: 2.5rem;
+      font-size: 2rem;
       font-weight: 700;
       text-align: center;
       margin-bottom: 2rem;
@@ -1878,10 +1872,27 @@
     color: var(--neutral-main);
   }
 
-  .custom-tab.active {
+  .custom-tab {
+    border: 2px solid var(--accent-hope); /* lavender border */
+    border-radius: 8px;
+    padding: 6px 12px;
+    background-color: white;
+    color: var(--neutral-main);
+    margin-right: 8px;
+    font-weight: 500;
+    transition: all 0.2s ease;
+    cursor: pointer;
+  }
+
+  .custom-tab:hover {
     background-color: var(--accent-hope);
     color: white;
-    border-color: var(--accent-hope) var(--accent-hope) white;
+  }
+
+  .custom-tab.active {
+    background-color: var(--accent-hope);
+    /* color: white; */
+    box-shadow: 0 0 0 2px var(--accent-hope);
   }
 
   .slider-wrapper {
@@ -1965,27 +1976,32 @@
 
   #legend {
     position: absolute;
-    bottom: 30px;
+    top: 50%;
     right: 30px;
-    width: 200px;
-    height: 50px;
+    transform: translateY(-50%);
+    width: auto;
+    height: 200px;
     display: flex;
-    flex-direction: column;
+    flex-direction: row; /* ← horizontal layout */
     align-items: center;
     font-size: 0.8rem;
+    background: white;
+    padding: 8px 12px;
+    border-radius: 6px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    z-index: 10;
   }
 
   .income-legend-gradient {
-    width: 100%;
-    height: 12px;
+    width: 12px;
+    height: 100%;
     background: linear-gradient(
-      to right,
-      #e0f3db 0%,
-      #a8ddb5 10%,
-      #7bccc4 20%,
-      #43a2ca 40%,
-      #0868ac 60%,
-      #084081 80%
+      to top,
+      #ffffb2,  /* low income */
+      #fdbb84,
+      #fc4e2a,
+      #9932cc,
+      #4b0082   /* high income */
     );
     border: 1px solid #ccc;
     border-radius: 4px;
@@ -1993,16 +2009,16 @@
   }
 
   .demographics-legend-gradient {
-    width: 100%;
-    height: 12px;
+    width: 12px;
+    height: 100%;
     background: linear-gradient(
-      to right,
-      #f7fbff 0%,
-      #d2e3f3 10%,
-      #a6bddb 30%,
-      #74a9cf 50%,
-      #2b8cbe 70%,
-      #045a8d 90%
+      to top,
+      #c6dbef 0%,     /* was #f7fbff → now a soft but visible blue */
+      #9ecae1 20%,    /* slightly stronger */
+      #6baed6 40%,    /* medium light blue */
+      #4292c6 60%,    /* medium */
+      #2171b5 80%,    /* medium dark */
+      #084594 100%    /* dark navy blue */
     );
     border: 1px solid #ccc;
     border-radius: 4px;
@@ -2010,17 +2026,17 @@
   }
 
   .family-legend-gradient {
-    width: 100%;
-    height: 12px;
+    width: 12px;
+    height: 100%;
     background: linear-gradient(
-      to right,
-      #fff7ec 0%,
-      #fee8c8 2%,
-      #fdbb84 5%,
-      #fc8d59 10%,
-      #ef6548 20%,
-      #d7301f 40%,
-      #990000 60%
+      to top,
+      #fddbc7 0%,   /* deeper light coral */
+      #fcae91 5%,   /* coral-orange */
+      #fb6a4a 15%,  /* strong orange-red */
+      #de2d26 30%,  /* red */
+      #a50f15 50%,  /* dark red */
+      #7f0000 70%,  /* very dark red */
+      #4d0000 100%  /* maroon */
     );
     border: 1px solid #ccc;
     border-radius: 4px;
@@ -2028,9 +2044,31 @@
   }
 
   .legend-labels {
-    width: 100%;
-    display: flex;
-    justify-content: space-between;
+    position: relative;
+    height: 100%;
+    width: 25px;
+  }
+
+  .legend-label {
+    position: absolute;
+    left: 3px;
+    transform: translateY(-50%);
+    font-size: 0.8rem;
+    color: #5c4a56; /* Or match your theme */
+  }
+
+  .legend-label.top {
+    top: 0%;
+    transform: translateY(0); /* top aligned */
+  }
+
+  .legend-label.middle {
+    top: 50%; /* center aligned */
+  }
+
+  .legend-label.bottom {
+    top: 100%;
+    transform: translateY(-100%); /* bottom aligned */
   }
 
   .info-box {
@@ -2039,7 +2077,7 @@
     right: 30px;
     background-color: white;
     padding: 10px 15px;
-    border: 2px solid #006400; /* dark green border */
+    border: 2px solid #801fb8; /* dark green border */
     border-radius: 6px;
     box-shadow: 0 2px 8px rgba(0,0,0,0.2);
     font-size: 0.9rem;
@@ -2052,7 +2090,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    margin: 0 2rem;
+    margin: 0 0rem;
     position: relative;
   }
 
@@ -2061,8 +2099,8 @@
   }
 
   .toggle-label {
-    width: 160px;
-    height: 44px;
+    width: 120px;
+    height: 35px;
     background-color: var(--accent-hope); /* soft sage green */
     border-radius: 50px;
     display: flex;
@@ -2072,7 +2110,7 @@
     position: relative;
     cursor: pointer;
     font-weight: bold;
-    font-size: 0.95rem;
+    font-size: 0.75rem;
     color: white;
     transition: all 0.3s;
     overflow: hidden;
@@ -2080,10 +2118,10 @@
 
   .toggle-thumb {
     position: absolute;
-    left: 4px;
+    left: 1px;
     top: 4px;
-    width: 36px;
-    height: 36px;
+    width: 27px;
+    height: 27px;
     background-color: white;
     border-radius: 50%;
     transition: all 0.3s ease;
@@ -2095,7 +2133,7 @@
   }
 
   .toggle-input:checked + .toggle-label .toggle-thumb {
-    transform: translateX(116px); /* move thumb right */
+    transform: translateX(90px); /* move thumb right */
   }
 
   .toggle-text {
@@ -2195,16 +2233,13 @@
     position: relative;
   }
 
-
-
 </style>
 
 <div class="nav-dots">
-  <a href="#home" data-tooltip="Home"></a>
+  <a href="#home" data-tooltip="Home" class="home-icon"></a>
   <a href="#history-intro" data-tooltip="History"></a>
   <a href="#key-takeaways" data-tooltip="Key Takeaways"></a>
   <a href="#price" data-tooltip="Affordability"></a>
   <a href="#timeline" data-tooltip="Timeline"></a>
   <a href="#map" data-tooltip="Explorer"></a>
-  <!-- <a href="#development" data-tooltip="Development"></a> -->
 </div>
