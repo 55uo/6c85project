@@ -2,6 +2,7 @@
   import { onMount } from "svelte";
   import mapboxgl from "mapbox-gl";
   import * as d3 from "d3";
+  import { parse } from "svelte/compiler";
 
   const MAPBOX_TOKEN = 'pk.eyJ1Ijoic3N1byIsImEiOiJjbTk5Z2NnNWIwNDh5MnJwdjFwZGhnZmU2In0.DlLRt3C3qdBGprZR4SvRVQ';
 
@@ -12,6 +13,7 @@
   let zoningMap;
   let singleFamilyGeo;
   let singleFamilyCsvData = new Map();
+  let complianceCsvData = new Map();
   let activeTab = 'income'; // default tab
   let usePercentage = true; // true = show %; false = show raw counts
 
@@ -41,14 +43,14 @@
   // Define demographic groups
   let selectedDemographic = 'Non-Hispanic White'; // default selection for demographics
   const demographicColumns = {
-    'Non-Hispanic White': 'nhwhi',
-    'Non-Hispanic Black': 'nhaa',
-    'Non-Hispanic American Indian': 'nhna',
-    'Non-Hispanic Asian': 'nhas',
-    'Non-Hispanic Pacific Islander': 'nhpi',
-    'Non-Hispanic Other Race': 'nhoth',
-    'Non-Hispanic Multi-Race': 'nhmlt',
-    'Hispanic or Latino': 'lat'
+    'Non-Hispanic White': ['nhwhi', 'nhwhi_p'],
+    'Non-Hispanic Black': ['nhaa', 'nhaa_p'],
+    'Non-Hispanic American Indian': ['nhna', 'nhna_p'],
+    'Non-Hispanic Asian': ['nhas', 'nhas_p'],
+    'Non-Hispanic Pacific Islander': ['nhpi', 'nhpi_p'],
+    'Non-Hispanic Other Race': ['nhoth', 'nhoth_p'],
+    'Non-Hispanic Multi-Race': ['nhmlt', 'nhmlt_p'],
+    'Hispanic or Latino': ['latino', 'lat_p'],
   };
 
   // Define family size groups
@@ -81,16 +83,21 @@
     // const singleFamilyCsv = await d3.csv(import.meta.env.BASE_URL + 'single_family_zoning/housing_sf_other_w_census.csv');
     const singleFamilyCsv = await d3.csv('single_family_zoning/housing_sf_other_w_census.csv');
     // singleFamilyGeo = await fetch(import.meta.env.BASE_URL + 'single_family_zoning/housing_sf_other_w_census_reprojected.json').then(res => res.json());
-    singleFamilyGeo = await fetch('single_family_zoning/housing_sf_other_w_census_reprojected.json').then(res => res.json());
+    singleFamilyGeo = await fetch('single_family_zoning/mapc_region_towns_w_population.geojson').then(res => res.json());
     // const unitPriceCsv = await d3.csv(import.meta.env.BASE_URL + 'scatterplot/average_unit_price_by_municipality.csv');
     const unitPriceCsv = await d3.csv('scatterplot/average_unit_price_by_municipality.csv');
     // const yearMuniAcc = await fetch(import.meta.env.BASE_URL + 'housing_timeline/year_municipality_accumulation_filtered.json').then(res => res.json());
     const yearMuniAcc = await fetch('housing_timeline/year_municipality_accumulation_filtered.json').then(res => res.json());
+    const complianceCsv = await d3.csv('single_family_zoning/compliance_muni_census.csv');
 
     // Build CSV map
     singleFamilyCsvData = new Map();
     singleFamilyCsv.forEach(row => {
-      singleFamilyCsvData.set(parseInt(row.fid), row);
+      singleFamilyCsvData.set(parseInt(row.muni_id), row);
+    });
+    complianceCsvData = new Map();
+    complianceCsv.forEach(row => {
+      complianceCsvData.set(parseInt(row.muni_id), row);
     });
 
     // Build unit price map
@@ -104,9 +111,8 @@
 
     // Build precomputed cache
     singleFamilyCsv.forEach(row => {
-      const fid = row.fid;
+      const fid = row.muni_id;
       const totalHouseholds = parseFloat(row.hh || 0);
-      const totalPopulation = parseFloat(row.pop || 0);
 
       // Income level percentages
       if (totalHouseholds > 0) {
@@ -121,13 +127,18 @@
       } else {
         incomeCache.set(parseInt(fid), [0, 0, 0, 0, 0, 0]);
       }
+    });
+
+    // Build demographic cache
+    complianceCsv.forEach(row => {
+      const fid = row.muni_id;
+      const totalPopulation = parseFloat(row.pop || 0);
 
       // Demographic group percentages
       if (totalPopulation > 0) {
         const demoPercentages = {};
         for (const [label, columnName] of Object.entries(demographicColumns)) {
-          const count = parseFloat(row[columnName] || 0);
-          demoPercentages[label] = count / totalPopulation; // fraction
+          demoPercentages[label] = columnName[1];
         }
         demoCache.set(fid, demoPercentages);
       } else {
@@ -138,9 +149,6 @@
         demoCache.set(fid, zeroPercentages);
       }
     });
-
-    console.log("Income Cache: ", incomeCache);
-    console.log("Demographics Cache: ", demoCache);
 
     // Build timeline cache
     timelineDataMap = new Map();
@@ -511,7 +519,7 @@
     if (!usePercentage) {
       // Find the maximum absolute value to normalize
       singleFamilyGeo.features.forEach(f => {
-        const fid = f.properties.fid;
+        const fid = f.properties.mapc_muni_id;
         const csvRow = singleFamilyCsvData.get(parseInt(fid));
         if (csvRow) {
           const group = incomeLevelGroups[selectedIncomeLevel];
@@ -529,7 +537,7 @@
     const updatedGeojson = {
       type: 'FeatureCollection',
       features: singleFamilyGeo.features.map(f => {
-        const fid = f.properties.fid;
+        const fid = f.properties.mapc_muni_id;
         const csvRow = singleFamilyCsvData.get(parseInt(fid));
 
         let normalizedValue = 0;
@@ -589,7 +597,7 @@
             1.0,  '#4b0082'
           ],
           'fill-opacity': 0.7,
-          'fill-outline-color': '#fff'
+          'fill-outline-color': '#000'
         }
       }, labelLayerId); // 👈 this ensures income-layer is added *below* labels
 
@@ -614,8 +622,6 @@
       zoningMap.on('mousemove', 'income-layer', (e) => {
         const feature = e.features[0];
         const props = feature.properties;
-        const fid = props.fid;
-        const csvRow = singleFamilyCsvData.get(parseInt(fid));
 
         // Set feature state
         if (hoveredFeatureId !== null) {
@@ -631,7 +637,9 @@
         );
 
         // Update the fixed info box
-        const muniName = props.muni || 'Unknown';
+        const muniName = props.mapc_municipal
+          ? props.mapc_municipal.toLowerCase().replace(/\b\w/g, c => c.toUpperCase())
+          : 'Unknown';
         const infoBox = document.getElementById('hover-info');
         if (infoBox) {
           let displayValue;
@@ -672,16 +680,20 @@
       return;
     }
 
+    const selectedColumn = demographicColumns[selectedDemographic];
+
+    if (!selectedColumn) {
+      console.error("Invalid demographic selection:", selectedDemographic);
+      return;
+    }
+
+    // Find the maximum value for the selected demographic
     let maxDemoValue = 0;
     if (!usePercentage) {
-      singleFamilyGeo.features.forEach(f => {
-        const fid = f.properties.fid;
-        const csvRow = singleFamilyCsvData.get(parseInt(fid));
-        if (csvRow && demographicColumns[selectedDemographic]) {
-          const count = parseFloat(csvRow[demographicColumns[selectedDemographic]] || 0);
-          if (count > maxDemoValue) {
-            maxDemoValue = count;
-          }
+      complianceCsvData.forEach(row => {
+        const val = parseFloat(row[selectedColumn[0]] || 0);
+        if (val > maxDemoValue) {
+          maxDemoValue = val;
         }
       });
     }
@@ -689,19 +701,23 @@
     const updatedGeojson = {
       type: 'FeatureCollection',
       features: singleFamilyGeo.features.map(f => {
-        const fid = f.properties.fid;
-        const csvRow = singleFamilyCsvData.get(parseInt(fid));
+        const fid = f.properties.mapc_muni_id;
+        const csvRow = complianceCsvData.get(parseInt(fid));
 
-        let normalizedValue = 0;
+        let percentages = 0;
         let rawCount = 0;
 
-        if (csvRow && demographicColumns[selectedDemographic]) {
-          rawCount = parseFloat(csvRow[demographicColumns[selectedDemographic]] || 0);
+        if (csvRow) {
           if (usePercentage) {
-            const pop = parseFloat(csvRow.pop || 0);
-            normalizedValue = (pop > 0) ? (rawCount / pop) : 0;
+            percentages = parseFloat(csvRow[selectedColumn[1]] || 0) / 100;
           } else {
-            normalizedValue = (maxDemoValue > 0) ? (rawCount / maxDemoValue) : 0;
+            rawCount = parseFloat(csvRow[selectedColumn[0]] || 0);
+            // Apply log-normalization to spread values more evenly
+            if (maxDemoValue > 0 && rawCount > 0) {
+              percentages = Math.log(rawCount + 1) / Math.log(maxDemoValue + 1);
+            } else {
+              percentages = 0;
+            }
           }
         }
 
@@ -710,7 +726,7 @@
           id: fid,
           properties: {
             ...f.properties,
-            demo_value: normalizedValue,
+            demo_value: percentages,
             demo_raw: rawCount,
           }
         };
@@ -747,7 +763,7 @@
             1.0, '#084594'
           ],
           'fill-opacity': 0.7,
-          'fill-outline-color': '#fff'
+          'fill-outline-color': '#000'
         }
       }, labelLayerId);  // 👈 Insert below the first label layer
 
@@ -786,14 +802,16 @@
           { hover: true }
         );
 
-        const muniName = props.muni || 'Unknown';
+        const muniName = props.mapc_municipal
+          ? props.mapc_municipal.toLowerCase().replace(/\b\w/g, c => c.toUpperCase())
+          : 'Unknown';
         const infoBox = document.getElementById('hover-info');
         if (infoBox) {
           let displayValue;
           if (usePercentage) {
+            // format percentage with 1 decimal place
             displayValue = (props.demo_value * 100).toFixed(1) + '%';
           } else {
-            // displayValue = (Math.round(props.demo_raw || 0).toLocaleString()) * 1000000; // format raw counts with commas
             displayValue = props.demo_raw.toLocaleString(); // format raw counts with commas
           }
 
@@ -849,7 +867,7 @@
     const updatedGeojson = {
       type: 'FeatureCollection',
       features: singleFamilyGeo.features.map(f => {
-        const fid = f.properties.fid;
+        const fid = f.properties.mapc_muni_id;
         const csvRow = singleFamilyCsvData.get(parseInt(fid));
         const hhTotal = parseFloat(csvRow?.hh || 0);
         const count = parseFloat(csvRow?.[selectedColumn] || 0) || 0;
@@ -904,7 +922,7 @@
             1.0,  '#4d0000'   // almost maroon (deepest)
           ],
           'fill-opacity': 0.7,
-          'fill-outline-color': '#fff'
+          'fill-outline-color': '#000'
         }
       }, labelLayerId);  // 👈 Insert below label layer
 
@@ -943,7 +961,9 @@
           { hover: true }
         );
 
-        const muniName = props.muni || 'Unknown';
+        const muniName = props.mapc_municipal
+          ? props.mapc_municipal.toLowerCase().replace(/\b\w/g, c => c.toUpperCase())
+          : 'Unknown';
         const infoBox = document.getElementById('hover-info');
         if (infoBox) {
           let displayValue;
@@ -1622,7 +1642,7 @@
                   <div class="slider-segment"></div>
                   <div class="slider-segment"></div>
                 </div>
-                <input id="incomeRange" type="range" min="0" max="5" step="1" on:input={onIncomeChange} class="form-range custom-slider" />
+                <input id="incomeRange" type="range" min="0" max="5" step="1" bind:value={selectedIncomeLevel} on:input={onIncomeChange} class="form-range custom-slider" />
                 <div class="slider-labels">
                   <span>&lt;25k</span><span>25k–50k</span><span>50k–100k</span><span>100k–150k</span><span>150k–200k</span><span>&gt;200k</span>
                 </div>
@@ -1630,7 +1650,7 @@
             {/if}
             {#if activeTab === 'demographics'}
               <label for="demographicSelect" class="form-label fw-bold mb-0">Demographic Type</label>
-              <select id="demographicSelect" class="form-select" style="width: 300px;" on:change={onDemographicChange}>
+              <select id="demographicSelect" class="form-select" style="width: 300px;" bind:value={selectedDemographic} on:change={onDemographicChange}>
                 {#each Object.keys(demographicColumns) as demo}
                   <option value={demo}>{demo}</option>
                 {/each}
@@ -1638,7 +1658,7 @@
             {/if}
             {#if activeTab === 'family'}
               <label for="familySizeSelect" class="form-label fw-bold mb-0">Family Size</label>
-              <select id="familySizeSelect" class="form-select" style="width: 300px;" on:change={onFamilySizeChange}>
+              <select id="familySizeSelect" class="form-select" style="width: 300px;" bind:value={selectedFamilySizeOption} on:change={onFamilySizeChange}>
                 {#each Object.keys(familySizeOptions) as sizeLabel}
                   <option value={sizeLabel}>{sizeLabel}</option>
                 {/each}
