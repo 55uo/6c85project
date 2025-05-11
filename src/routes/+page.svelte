@@ -71,6 +71,18 @@
     "Nonfamily Households - 7+ people": "nfhh7o"
   };
 
+  // const groupLabels = activeTab === 'demographics'
+  //   ? Object.keys(demographicColumns)
+  //   : activeTab === 'income'
+  //     ? incomeLevelGroups.map((g, i) => `Group ${i}`)
+  //     : Object.keys(familySizeOptions);
+
+  // const colorScale = d3.scaleOrdinal().domain(groupLabels).range(d3.schemeSet2);
+
+  const colorScale = d3.scaleOrdinal()
+  .domain(Object.keys(demographicColumns)) // or income ranges / family size
+  .range(d3.schemeTableau10);
+
   // Housing timeline
   let timelineDataMap = new Map();
   let timelineMaxUnits = 0;
@@ -649,10 +661,71 @@
             displayValue = Math.round(props.income_raw || 0).toLocaleString(); // Format raw count nicely
           }
 
+          const fid = props.mapc_muni_id;
+          const csvRow = singleFamilyCsvData.get(parseInt(fid));
+
+          const incomeValues = incomeLevelGroups.map((group, i) => {
+            let count = 0;
+            group.forEach(col => {
+              count += parseFloat(csvRow?.[col] || 0);
+            });
+
+            return {
+              label: `Group ${i + 1}`, // or use real income range labels
+              index: i,
+              value: count
+            };
+          });
+
+          const selectedData = incomeValues[selectedIncomeLevel];
+
+          const muniName = props.mapc_municipal
+            ? props.mapc_municipal.toLowerCase().replace(/\b\w/g, c => c.toUpperCase())
+            : 'Unknown';
+
           infoBox.innerHTML = `
             <strong>${muniName}</strong><br/>
-            <b>${usePercentage ? 'Households % in Selected Income Level:' : 'Number of Households:'}</b> ${displayValue}
+            <svg id="donut-chart" width="120" height="120"></svg>
           `;
+
+          const svg = d3.select("#donut-chart");
+          svg.selectAll("*").remove();
+
+          const width = 120, height = 120, radius = 50;
+          const g = svg.append("g").attr("transform", `translate(${width/2},${height/2})`);
+
+          const pie = d3.pie().value(d => d.value);
+          const arc = d3.arc().innerRadius(30).outerRadius(radius);
+
+          // pop-out effect for selected slice
+          g.selectAll("path")
+            .data(pie(incomeValues))
+            .enter()
+            .append("path")
+            .attr("fill", d => colorScale(d.data.label))
+            .attr("stroke", "#fff")
+            .attr("stroke-width", 1)
+            .attr("d", arc)
+            .attr("transform", d => {
+              if (d.data.index === selectedIncomeLevel) {
+                const [x, y] = arc.centroid(d);
+                return `translate(${x * 0.2}, ${y * 0.2})`; // ⬅️ explode selected slice
+              }
+              return null;
+            });
+
+          // center label for value
+          const valueToDisplay = usePercentage
+            ? ((props.income_value || 0) * 100).toFixed(1) + '%'
+            : Math.round(props.income_raw || 0).toLocaleString();
+
+          g.append("text")
+            .attr("text-anchor", "middle")
+            .attr("alignment-baseline", "middle")
+            .attr("font-size", "14px")
+            .attr("font-family", "inherit")
+            .attr("fill", "#333")
+            .text(valueToDisplay);
         }
       });
 
@@ -802,6 +875,14 @@
           { hover: true }
         );
 
+        const fid = props.mapc_muni_id;
+        const csvRow = complianceCsvData.get(parseInt(fid));
+
+        const demoValues = Object.entries(demographicColumns).map(([label, cols]) => {
+          const percent = parseFloat(csvRow?.[cols[1]] || 0); // already %
+          return { label, value: percent };
+        });
+
         const muniName = props.mapc_municipal
           ? props.mapc_municipal.toLowerCase().replace(/\b\w/g, c => c.toUpperCase())
           : 'Unknown';
@@ -817,8 +898,49 @@
 
           infoBox.innerHTML = `
             <strong>${muniName}</strong><br/>
-            <b>${usePercentage ? 'Households % in Selected Demographics Group:' : 'Population Count:'}</b> ${displayValue}
+            <svg id="donut-chart" width="120" height="120"></svg>
           `;
+
+          const svg = d3.select("#donut-chart");
+          svg.selectAll("*").remove(); // clear previous
+
+          const width = 120, height = 120, radius = 50;
+          const g = svg.append("g").attr("transform", `translate(${width/2},${height/2})`);
+
+          const pie = d3.pie().value(d => d.value);
+          const arc = d3.arc().innerRadius(30).outerRadius(radius);
+
+          g.selectAll("path")
+            .data(pie(demoValues))
+            .enter()
+            .append("path")
+            .attr("fill", d => colorScale(d.data.label))
+            .attr("stroke", "#fff")
+            .attr("stroke-width", 1)
+            .attr("d", arc)
+            .attr("transform", d => {
+              if (d.data.label === selectedDemographic) {
+                const [x, y] = arc.centroid(d);
+                return `translate(${x * 0.2}, ${y * 0.2})`; // ⬅️ explode selected slice
+              }
+              return null;
+            });
+
+          // Center label for selected group percentage or raw count
+          const selectedData = demoValues.find(d => d.label === selectedDemographic);
+          if (selectedData) {
+            const centerLabel = usePercentage
+              ? `${selectedData.value.toFixed(1)}%`
+              : Math.round(parseFloat(csvRow?.[demographicColumns[selectedDemographic][0]] || 0)).toLocaleString();
+
+            g.append("text")
+              .attr("text-anchor", "middle")
+              .attr("alignment-baseline", "middle")
+              .attr("font-size", "14px")
+              .attr("font-family", "inherit")
+              .attr("fill", "#333")
+              .text(centerLabel);
+          }
         }
       });
 
@@ -964,19 +1086,63 @@
         const muniName = props.mapc_municipal
           ? props.mapc_municipal.toLowerCase().replace(/\b\w/g, c => c.toUpperCase())
           : 'Unknown';
+
+        const csvRow = singleFamilyCsvData.get(parseInt(feature.id));
+        const hhTotal = parseFloat(csvRow?.hh || 0);
+
+        const familyValues = Object.entries(familySizeOptions).map(([label, col]) => {
+          const count = parseFloat(csvRow?.[col] || 0);
+          return {
+            label,
+            value: usePercentage && hhTotal > 0 ? (count / hhTotal) * 100 : count
+          };
+        });
+
+        const selectedData = familyValues.find(d => d.label === selectedFamilySizeOption);
+        const centerText = usePercentage
+          ? `${selectedData.value.toFixed(1)}%`
+          : Math.round(selectedData.value).toLocaleString();
+
         const infoBox = document.getElementById('hover-info');
         if (infoBox) {
-          let displayValue;
-          if (usePercentage) {
-            displayValue = (props.family_value * 100).toFixed(1) + '%';
-          } else {
-            displayValue = (props.family_value * maxFamilyCount).toFixed(0); // show raw count!
-          }
-
           infoBox.innerHTML = `
             <strong>${muniName}</strong><br/>
-            <b>${usePercentage ? 'Households % in Selected Family Size:' : 'Number of Households:'}</b> ${displayValue}
+            <svg id="donut-chart" width="120" height="120"></svg>
           `;
+
+          const svg = d3.select("#donut-chart");
+          svg.selectAll("*").remove();
+
+          const width = 120, height = 120, radius = 50;
+          const g = svg.append("g").attr("transform", `translate(${width / 2}, ${height / 2})`);
+
+          const pie = d3.pie().value(d => d.value);
+          const arc = d3.arc().innerRadius(30).outerRadius(radius);
+          const color = d3.scaleOrdinal().domain(familyValues.map(d => d.label)).range(d3.schemeSet3);
+
+          g.selectAll("path")
+            .data(pie(familyValues))
+            .enter()
+            .append("path")
+            .attr("fill", d => colorScale(d.data.label))
+            .attr("stroke", "#fff")
+            .attr("stroke-width", 1)
+            .attr("d", arc)
+            .attr("transform", d => {
+              if (d.data.label === selectedFamilySizeOption) {
+                const [x, y] = arc.centroid(d);
+                return `translate(${x * 0.2}, ${y * 0.2})`; // ⬅️ explode selected slice
+              }
+              return null;
+            });
+
+          g.append("text")
+            .attr("text-anchor", "middle")
+            .attr("alignment-baseline", "middle")
+            .attr("font-size", "14px")
+            .attr("font-family", "inherit")
+            .attr("fill", "#333")
+            .text(centerText);
         }
       });
 
