@@ -489,10 +489,6 @@
     // .attr("y", (i) => barY((i) * brickHeightUnits));
     .attr("y", (i) => barY((i + 6) * brickHeightUnits))
   });
-
-
-
-
 }
 
   function onTabChange(tabName) {
@@ -622,30 +618,33 @@
           'line-color': '#801fb8', // DARK GREEN color
           'line-width': [
             'case',
-            ['boolean', ['feature-state', 'hover'], false],
+            ['any',
+              ['boolean', ['feature-state', 'hover'], false],
+              ['boolean', ['feature-state', 'selected'], false]
+            ],
             2,
             0
           ]
         }
       });
 
+      let selectedFeatureId = null;
       let hoveredFeatureId = null;
 
-      zoningMap.on('mousemove', 'income-layer', (e) => {
+      zoningMap.on('click', 'income-layer', (e) => {
         const feature = e.features[0];
         const props = feature.properties;
 
-        // Set feature state
-        if (hoveredFeatureId !== null) {
+        if (selectedFeatureId !== null) {
           zoningMap.setFeatureState(
-            { source: 'income-source', id: hoveredFeatureId },
-            { hover: false }
+            { source: 'income-source', id: selectedFeatureId },
+            { selected: false }
           );
         }
-        hoveredFeatureId = feature.id;
+        selectedFeatureId = feature.id;
         zoningMap.setFeatureState(
-          { source: 'income-source', id: hoveredFeatureId },
-          { hover: true }
+          { source: 'income-source', id: selectedFeatureId },
+          { selected: true }
         );
 
         // Update the fixed info box
@@ -677,15 +676,16 @@
             };
           });
 
-          const selectedData = incomeValues[selectedIncomeLevel];
-
           const muniName = props.mapc_municipal
             ? props.mapc_municipal.toLowerCase().replace(/\b\w/g, c => c.toUpperCase())
             : 'Unknown';
 
           infoBox.innerHTML = `
-            <strong>${muniName}</strong><br/>
-            <svg id="donut-chart" width="120" height="120"></svg>
+            <div style="width: 170px;">
+              <strong>${muniName}</strong><br/>
+              <span style="font-size: 0.9rem; color: #555; display: inline-block; line-height: 1.4;">Distribution of households by income bracket:</span><br/>
+              <svg id="donut-chart" width="120" height="120"></svg>
+            </div>
           `;
 
           const svg = d3.select("#donut-chart");
@@ -729,6 +729,51 @@
         }
       });
 
+      zoningMap.on('click', (e) => {
+        // ✅ Only run this logic if income-layer exists
+        if (zoningMap.getLayer('income-layer')) {
+          const features = zoningMap.queryRenderedFeatures(e.point, {
+            layers: ['income-layer']
+          });
+
+          if (features.length === 0 && selectedFeatureId !== null) {
+            if (zoningMap.getSource('income-source')) {
+              zoningMap.setFeatureState(
+                { source: 'income-source', id: selectedFeatureId },
+                { selected: false }
+              );
+            }
+
+            selectedFeatureId = null;
+
+            const infoBox = document.getElementById('hover-info');
+            if (infoBox) {
+              infoBox.innerHTML = '<i>Click a municipality to explore housing details</i>';
+            }
+          }
+        }
+      });
+
+      zoningMap.on('mousemove', 'income-layer', (e) => {
+        const feature = e.features[0];
+
+        if (hoveredFeatureId !== null) {
+          zoningMap.setFeatureState(
+            { source: 'income-source', id: hoveredFeatureId },
+            { hover: false }
+          );
+        }
+
+        hoveredFeatureId = feature.id;
+
+        if (hoveredFeatureId !== selectedFeatureId) {
+          zoningMap.setFeatureState(
+            { source: 'income-source', id: hoveredFeatureId },
+            { hover: true }
+          );
+        }
+      });
+
       zoningMap.on('mouseleave', 'income-layer', () => {
         if (hoveredFeatureId !== null) {
           zoningMap.setFeatureState(
@@ -737,12 +782,6 @@
           );
         }
         hoveredFeatureId = null;
-
-        // Clear info box
-        const infoBox = document.getElementById('hover-info');
-        if (infoBox) {
-          infoBox.innerHTML = '<i>Hover over a municipality</i>';
-        }
       });
     }
   }
@@ -849,7 +888,10 @@
           'line-color': '#000',
           'line-width': [
             'case',
-            ['boolean', ['feature-state', 'hover'], false],
+            ['any',
+              ['boolean', ['feature-state', 'hover'], false],
+              ['boolean', ['feature-state', 'selected'], false]
+            ],
             2,
             0
           ]
@@ -857,22 +899,23 @@
       });
 
       // Hover behavior
+      let selectedFeatureId = null;
       let hoveredFeatureId = null;
 
-      zoningMap.on('mousemove', 'demo-layer', (e) => {
+      zoningMap.on('click', 'demo-layer', (e) => {
         const feature = e.features[0];
         const props = feature.properties;
 
-        if (hoveredFeatureId !== null) {
+        if (selectedFeatureId !== null) {
           zoningMap.setFeatureState(
-            { source: 'demo-source', id: hoveredFeatureId },
-            { hover: false }
+            { source: 'demo-source', id: selectedFeatureId },
+            { selected: false }
           );
         }
-        hoveredFeatureId = feature.id;
+        selectedFeatureId = feature.id;
         zoningMap.setFeatureState(
-          { source: 'demo-source', id: hoveredFeatureId },
-          { hover: true }
+          { source: 'demo-source', id: selectedFeatureId },
+          { selected: true }
         );
 
         const fid = props.mapc_muni_id;
@@ -897,8 +940,11 @@
           }
 
           infoBox.innerHTML = `
-            <strong>${muniName}</strong><br/>
-            <svg id="donut-chart" width="120" height="120"></svg>
+            <div style="width: 170px;">
+              <strong>${muniName}</strong><br/>
+              <span style="font-size: 0.9rem; color: #555; display: inline-block; line-height: 1.4;">Distribution of households by demographic group:</span><br/>
+              <svg id="donut-chart" width="120" height="120"></svg>
+            </div>
           `;
 
           const svg = d3.select("#donut-chart");
@@ -944,6 +990,47 @@
         }
       });
 
+      zoningMap.on('click', (e) => {
+        if (zoningMap.getLayer('demo-layer')) {
+          const features = zoningMap.queryRenderedFeatures(e.point, {
+            layers: ['demo-layer']
+          });
+
+          if (features.length === 0 && selectedFeatureId !== null) {
+            zoningMap.setFeatureState(
+              { source: 'demo-source', id: selectedFeatureId },
+              { selected: false }
+            );
+            selectedFeatureId = null;
+
+            const infoBox = document.getElementById('hover-info');
+            if (infoBox) {
+              infoBox.innerHTML = '<i>Click a municipality to explore housing details</i>';
+            }
+          }
+        }
+      });
+      
+      zoningMap.on('mousemove', 'demo-layer', (e) => {
+        const feature = e.features[0];
+
+        if (hoveredFeatureId !== null) {
+          zoningMap.setFeatureState(
+            { source: 'demo-source', id: hoveredFeatureId },
+            { hover: false }
+          );
+        }
+
+        hoveredFeatureId = feature.id;
+
+        if (hoveredFeatureId !== selectedFeatureId) {
+          zoningMap.setFeatureState(
+            { source: 'demo-source', id: hoveredFeatureId },
+            { hover: true }
+          );
+        }
+      })
+
       zoningMap.on('mouseleave', 'demo-layer', () => {
         if (hoveredFeatureId !== null) {
           zoningMap.setFeatureState(
@@ -952,11 +1039,6 @@
           );
         }
         hoveredFeatureId = null;
-
-        const infoBox = document.getElementById('hover-info');
-        if (infoBox) {
-          infoBox.innerHTML = '<i>Hover over a municipality</i>';
-        }
       });
     }
   }
@@ -1057,7 +1139,10 @@
           'line-color': '#801fb8', // black outline on hover
           'line-width': [
             'case',
-            ['boolean', ['feature-state', 'hover'], false],
+            ['any',
+              ['boolean', ['feature-state', 'hover'], false],
+              ['boolean', ['feature-state', 'selected'], false]
+            ],
             2,
             0
           ]
@@ -1065,22 +1150,23 @@
       });
 
       // Hover behavior
+      let selectedFeatureId = null;
       let hoveredFeatureId = null;
 
-      zoningMap.on('mousemove', 'family-layer', (e) => {
+      zoningMap.on('click', 'family-layer', (e) => {
         const feature = e.features[0];
         const props = feature.properties;
 
-        if (hoveredFeatureId !== null) {
+        if (selectedFeatureId !== null) {
           zoningMap.setFeatureState(
-            { source: 'family-source', id: hoveredFeatureId },
-            { hover: false }
+            { source: 'family-source', id: selectedFeatureId },
+            { selected: false }
           );
         }
-        hoveredFeatureId = feature.id;
+        selectedFeatureId = feature.id;
         zoningMap.setFeatureState(
-          { source: 'family-source', id: hoveredFeatureId },
-          { hover: true }
+          { source: 'family-source', id: selectedFeatureId },
+          { selected: true }
         );
 
         const muniName = props.mapc_municipal
@@ -1106,8 +1192,11 @@
         const infoBox = document.getElementById('hover-info');
         if (infoBox) {
           infoBox.innerHTML = `
-            <strong>${muniName}</strong><br/>
-            <svg id="donut-chart" width="120" height="120"></svg>
+            <div style="width: 170px;">
+              <strong>${muniName}</strong><br/>
+              <span style="font-size: 0.9rem; color: #555; display: inline-block; line-height: 1.4;">Distribution of households by family size:</span><br/>
+              <svg id="donut-chart" width="120" height="120"></svg>
+            </div>
           `;
 
           const svg = d3.select("#donut-chart");
@@ -1146,6 +1235,47 @@
         }
       });
 
+      zoningMap.on('click', (e) => {
+        if (zoningMap.getLayer('family-layer')) {
+          const features = zoningMap.queryRenderedFeatures(e.point, {
+            layers: ['family-layer']
+          });
+
+          if (features.length === 0 && selectedFeatureId !== null) {
+            zoningMap.setFeatureState(
+              { source: 'family-source', id: selectedFeatureId },
+              { selected: false }
+            );
+            selectedFeatureId = null;
+
+            const infoBox = document.getElementById('hover-info');
+            if (infoBox) {
+              infoBox.innerHTML = '<i>Click a municipality to explore housing details</i>';
+            }
+          }
+        }
+      });
+
+      zoningMap.on('mousemove', 'family-layer', (e) => {
+        const feature = e.features[0];
+
+        if (hoveredFeatureId !== null) {
+          zoningMap.setFeatureState(
+            { source: 'family-source', id: hoveredFeatureId },
+            { hover: false }
+          );
+        }
+
+        hoveredFeatureId = feature.id;
+
+        if (hoveredFeatureId !== selectedFeatureId) {
+          zoningMap.setFeatureState(
+            { source: 'family-source', id: hoveredFeatureId },
+            { hover: true }
+          );
+        }
+      });
+
       zoningMap.on('mouseleave', 'family-layer', () => {
         if (hoveredFeatureId !== null) {
           zoningMap.setFeatureState(
@@ -1154,11 +1284,6 @@
           );
         }
         hoveredFeatureId = null;
-
-        const infoBox = document.getElementById('hover-info');
-        if (infoBox) {
-          infoBox.innerHTML = '<i>Hover over a municipality</i>';
-        }
       });
     }
   }
@@ -1878,7 +2003,7 @@
                     </div>                    
                   </div>
                   <div id="hover-info" class="info-box">
-                    <i>Hover over a municipality</i>
+                    <i>Click a municipality to explore housing details</i>
                   </div>
                 </div>
               </div>
