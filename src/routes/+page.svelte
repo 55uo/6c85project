@@ -252,59 +252,9 @@
 
   function onSearch(event) {
     const selected = event.target.value.trim();
-    selectedMuni = selected || null;
-
-    const circles = d3.select("#scatterplot svg g").selectAll("circle");
-
-    circles
-      .attr("r", d => (d.muni === selectedMuni ? 10 : 6))
-      .attr("stroke-width", d => (d.muni === selectedMuni ? 1.5 : 0.1))
-      .attr("opacity", d => (d.muni === selectedMuni ? 1 : 0.85));
-
-    if (selectedMuni) {
-      const match = scatterData.find(d => d.muni === selectedMuni);
-
-      // tooltip.transition().duration(200).style("opacity", 0.9);
-      // tooltip.html(`
-      //   <strong>${match.muni}</strong><br/>
-      //   <b>Avg Income:</b> ${formatMillions(match.avgIncome)}<br/>
-      //   <b>Avg Unit Price:</b> ${formatMillions(match.avgUnitPrice)}<br/>
-      //   <b>Years to Pay Off*:</b> ${match.yearsToPayoff.toFixed(1)}
-      // `);
-
-      // Update the left info box
-      const infoBox = document.getElementById("municipality-info");
-      if (infoBox) {
-        infoBox.innerHTML = `
-          <strong>${match.muni}</strong><br/>
-          <b>Avg Income:</b> ${formatMillions(match.avgIncome)}<br/>
-          <b>Avg Unit Price:</b> ${formatMillions(match.avgUnitPrice)}<br/>
-          <b>Years to Pay Off*:</b> ${match.yearsToPayoff.toFixed(1)}
-          <svg id="lot-size-chart" width="200" height="200"></svg>
-        `;
-      }
-      console.log("Selected Municipality:", match.muni);
-      updateLotSizeChart(selectedMuni);
-
-      const svgElement = document.querySelector("#scatterplot svg");
-      const pt = svgElement.createSVGPoint();
-      pt.x = x(match.avgIncome);
-      pt.y = y(match.avgUnitPrice);
-      const screenPoint = pt.matrixTransform(svgElement.getScreenCTM());
-      const scatterRect = svgElement.getBoundingClientRect();
-
-      tooltip
-        .style("left", (screenPoint.x - scatterRect.left + 80) + "px")
-        .style("top", (screenPoint.y - scatterRect.top + 30) + "px");
-
-      // 🛠️ MOST IMPORTANT PART: move the selected circle to the front
-      circles.filter(d => d.muni === selectedMuni).raise();
-    } else {
-      tooltip.transition().duration(300).style("opacity", 0);
-    }
-
-    // document.getElementById("municipality-graphs").style.display = "block";
+    updateSelectedMuni(selected || null, false);
   }
+
 
   function updateLotSizeChart(muniName) {
     const svg = d3.select("#lot-size-chart");
@@ -1236,33 +1186,12 @@
     // Click to select a municipality
     svg.selectAll("circle")
     .on("click", (event, d) => {
-      selectedMuni = d.muni;
+      updateSelectedMuni(d.muni, true);
 
-      // Update circle appearance
-      const circles = d3.select("#scatterplot svg g").selectAll("circle");
-      circles
-        .attr("r", c => (c.muni === selectedMuni ? 10 : 6))
-        .attr("stroke-width", c => (c.muni === selectedMuni ? 1.5 : 0.1))
-        .attr("opacity", c => (c.muni === selectedMuni ? 1 : 0.85));
-
-      // Move selected circle to front
-      circles.filter(c => c.muni === selectedMuni).raise();
-
-      // Update dropdown selection
+      // Sync dropdown
       const selectElement = document.getElementById("searchSelect");
       if (selectElement) {
-        selectElement.value = selectedMuni;
-      }
-
-      // Update the left info box
-      const infoBox = document.getElementById("municipality-info");
-      if (infoBox) {
-        infoBox.innerHTML = `
-          <strong>${d.muni}</strong><br/>
-          <b>Avg Income:</b> ${formatMillions(d.avgIncome)}<br/>
-          <b>Avg Unit Price:</b> ${formatMillions(d.avgUnitPrice)}<br/>
-          <b>Years to Pay Off*:</b> ${d.yearsToPayoff.toFixed(1)}
-        `;
+        selectElement.value = d.muni;
       }
     });
 
@@ -1354,6 +1283,53 @@
       .attr("text-anchor", "start")
       .style("font-size", "12px")
       .text("Years to Pay Off*");
+  }
+
+  function updateSelectedMuni(muniName, showTooltip = false) {
+    selectedMuni = muniName;
+
+    const circles = d3.select("#scatterplot svg g").selectAll("circle");
+    circles
+      .attr("r", d => (d.muni === selectedMuni ? 10 : 6))
+      .attr("stroke-width", d => (d.muni === selectedMuni ? 1.5 : 0.1))
+      .attr("opacity", d => (d.muni === selectedMuni ? 1 : 0.85));
+
+    const match = scatterData.find(d => d.muni === selectedMuni);
+    if (!match) return;
+
+    const infoBox = document.getElementById("municipality-info");
+    if (infoBox) {
+      infoBox.innerHTML = `
+        <strong>${match.muni}</strong><br/>
+        <b>Avg Income:</b> ${formatMillions(match.avgIncome)}<br/>
+        <b>Avg Unit Price:</b> ${formatMillions(match.avgUnitPrice)}<br/>
+        <b>Years to Pay Off*:</b> ${match.yearsToPayoff.toFixed(1)}<br/>
+        <svg id="lot-size-chart" width="200" height="200"></svg>
+      `;
+    }
+
+    updateLotSizeChart(selectedMuni);
+
+    if (showTooltip) {
+      const svgElement = document.querySelector("#scatterplot svg");
+      const pt = svgElement.createSVGPoint();
+      pt.x = x(match.avgIncome);
+      pt.y = y(match.avgUnitPrice);
+      const screenPoint = pt.matrixTransform(svgElement.getScreenCTM());
+      const scatterRect = svgElement.getBoundingClientRect();
+
+      tooltip
+        .style("left", (screenPoint.x - scatterRect.left + 80) + "px")
+        .style("top", (screenPoint.y - scatterRect.top + 30) + "px")
+        .style("opacity", 0.9);
+    } else {
+      tooltip.transition().duration(300).style("opacity", 0); // hide it if not hovering
+    }
+
+    circles.filter(d => d.muni === selectedMuni).raise();
+
+    const graphBox = document.getElementById("municipality-graphs");
+    if (graphBox) graphBox.style.display = "block";
   }
 
   onMount(async () => {
@@ -1635,16 +1611,16 @@
           
             <!-- Graphs go here -->
             <div id="municipality-graphs" style="margin-top: 1rem; display: none;">
-              <div style="display: flex; flex-wrap: wrap; gap: 1rem; justify-content: space-between;">
-                <div style="flex: 1; min-width: 150px;">
+              <div style="display: flex; flex-direction: column; gap: 1.5rem; align-items: center;">
+                <div style="min-width: 150px; width: 100%; max-width: 300px;">
                   <h6 style="text-align: center;">Lot Size (sqft)</h6>
                   <svg id="lot-size-chart" width="100%" height="120"></svg>
                 </div>
-                <div style="flex: 1; min-width: 150px;">
+                <div style="min-width: 150px; width: 100%; max-width: 300px;">
                   <h6 style="text-align: center;">Zoning Compliance</h6>
                   <svg id="compliance-chart" width="100%" height="120"></svg>
                 </div>
-                <div style="flex: 1; min-width: 150px;">
+                <div style="min-width: 150px; width: 100%; max-width: 300px;">
                   <h6 style="text-align: center;">Avg FAR</h6>
                   <svg id="far-chart" width="100%" height="120"></svg>
                 </div>
