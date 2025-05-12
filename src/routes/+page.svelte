@@ -14,6 +14,7 @@
   let singleFamilyCsvData = new Map();
   let activeTab = 'income'; // default tab
   let usePercentage = true; // true = show %; false = show raw counts
+  let muniSummaryMap = new Map(); // for scatterplot
 
   // Precomputed cache
   let incomeCache = new Map();
@@ -100,7 +101,7 @@
         unitPriceMap.set(d.muni.trim().toLowerCase(), parseFloat(d.average_unit_price));
       }
     });
-    console.log("Unit Price Map: ", unitPriceMap);
+    // console.log("Unit Price Map: ", unitPriceMap);
 
     // Build precomputed cache
     singleFamilyCsv.forEach(row => {
@@ -234,6 +235,19 @@
     }).filter(d => d.avgIncome !== null && d.avgUnitPrice !== null);
 
     console.log('Scatter Data', scatterData);
+
+    const muniSummaryData = await d3.csv('scatterplot/municipality_summary.csv');
+    muniSummaryMap = new Map();
+    muniSummaryData.forEach(d => {
+      muniSummaryMap.set(d.muni.trim().toLowerCase(), {
+        mean_lot_size_sqft: +d.mean_lot_size_sqft,
+        compliance_rate: +d.compliance_rate,
+        mean_far: +d.mean_far,
+        lot_25: +d["lot_25%"],
+        lot_50: +d["lot_50%"],
+        lot_75: +d["lot_75%"]
+      });
+    });
   }
 
   function onSearch(event) {
@@ -266,9 +280,11 @@
           <b>Avg Income:</b> ${formatMillions(match.avgIncome)}<br/>
           <b>Avg Unit Price:</b> ${formatMillions(match.avgUnitPrice)}<br/>
           <b>Years to Pay Off*:</b> ${match.yearsToPayoff.toFixed(1)}
+          <svg id="lot-size-chart" width="200" height="200"></svg>
         `;
       }
-
+      console.log("Selected Municipality:", match.muni);
+      updateLotSizeChart(selectedMuni);
 
       const svgElement = document.querySelector("#scatterplot svg");
       const pt = svgElement.createSVGPoint();
@@ -286,6 +302,61 @@
     } else {
       tooltip.transition().duration(300).style("opacity", 0);
     }
+
+    // document.getElementById("municipality-graphs").style.display = "block";
+  }
+
+  function updateLotSizeChart(muniName) {
+    const svg = d3.select("#lot-size-chart");
+    if (svg.empty()) return;
+
+    console.log("Updating Lot Size Chart for:", muniName);
+    console.log("Muni Summary Map:", muniSummaryMap);
+    const data = muniSummaryMap.get(muniName.trim().toLowerCase());
+    console.log("Lot Size Data:", data);
+    if (!data) {
+      console.warn("No lot size data for", muniName);
+      return;
+    }
+
+    const lotSizeData = [
+      { label: "25th", value: data.lot_25 },
+      { label: "Median", value: data.lot_50 },
+      { label: "75th", value: data.lot_75 }
+    ];
+
+    svg.selectAll("*").remove();
+
+    const margin = { top: 10, right: 10, bottom: 30, left: 40 };
+    const width = parseInt(svg.attr("width")) - margin.left - margin.right;
+    const height = parseInt(svg.attr("height")) - margin.top - margin.bottom;
+
+    const g = svg.append("g").attr("transform", `translate(${margin.left},${margin.top})`);
+
+    const x = d3.scaleBand()
+      .domain(lotSizeData.map(d => d.label))
+      .range([0, width])
+      .padding(0.2);
+
+    const y = d3.scaleLinear()
+      .domain([0, d3.max(lotSizeData, d => d.value)])
+      .range([height, 0]);
+
+    g.append("g")
+      .attr("transform", `translate(0,${height})`)
+      .call(d3.axisBottom(x));
+
+    g.append("g").call(d3.axisLeft(y).ticks(3));
+
+    g.selectAll("rect")
+      .data(lotSizeData)
+      .enter()
+      .append("rect")
+      .attr("x", d => x(d.label))
+      .attr("y", d => y(d.value))
+      .attr("width", x.bandwidth())
+      .attr("height", d => height - y(d.value))
+      .attr("fill", "#a6b9a3");
   }
 
   async function initZoningMap() {
@@ -1208,14 +1279,14 @@
 
     // Add a group (g) for the red dashed line legend
     const lineLegend = svg.append("g")
-      .attr("transform", `translate(${width - 300}, 20)`); // move to top right corner nicely
+      .attr("transform", `translate(${width - 300}, 50)`); // move to top right corner nicely
 
     // Draw a red dashed sample line inside
     lineLegend.append("line")
       .attr("x1", 0)
-      .attr("y1", 10)
+      .attr("y1", 14)
       .attr("x2", 40)
-      .attr("y2", 10)
+      .attr("y2", 14)
       .attr("stroke", "red")
       .attr("stroke-width", 2)
       .attr("stroke-dasharray", "5,5");
@@ -1597,7 +1668,7 @@
           </div>
 
           <div style="padding: 1rem;">
-            <div id="scatterplot" style="position: relative;"></div>
+            <div id="scatterplot" style="position: relative; width: 100%; height: 550px;"></div>
           </div>
 
           <div style="font-size: 0.75rem; color: #555; margin-top: 1rem; text-align: left;">

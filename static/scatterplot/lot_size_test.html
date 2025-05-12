@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Lot Size Grid</title>
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+  <style>
+    body {
+      font-family: sans-serif;
+      background: #f9f4ef;
+      color: #333;
+      padding: 20px;
+    }
+    h1 {
+      text-align: center;
+      color: #5c5145;
+    }
+    .grid {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 24px;
+      justify-content: center;
+    }
+    .mini-chart {
+      background: white;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      padding: 10px;
+      width: 250px;
+    }
+    .mini-chart svg {
+      width: 100%;
+      height: 150px;
+    }
+    .chart-title {
+      font-size: 14px;
+      font-weight: bold;
+      text-align: center;
+      margin-bottom: 6px;
+    }
+  </style>
+</head>
+<body>
+  <h1>Lot Size by Municipality</h1>
+  <div class="grid" id="chart-grid"></div>
+
+  <script>
+    const LOT_COLUMNS = ["lot_25%", "lot_50%", "lot_75%"];
+
+    d3.csv("municipality_summary.csv").then(data => {
+      const container = d3.select("#chart-grid");
+
+      // Parse lot sizes to numbers
+      data.forEach(row => {
+        LOT_COLUMNS.forEach(col => {
+          row[col] = +row[col];
+        });
+      });
+
+      // Get overall max for consistent Y-scale
+      const maxLotSize = d3.max(data.flatMap(row =>
+        LOT_COLUMNS.map(col => row[col])
+      ));
+
+      data.forEach(row => {
+        const muni = row.muni;
+        const values = LOT_COLUMNS.map(col => ({
+          label: col,
+          lot_size: row[col]
+        }));
+
+        const div = container.append("div").attr("class", "mini-chart");
+        div.append("div").attr("class", "chart-title").text(muni);
+
+        const svg = div.append("svg");
+        const margin = { top: 10, right: 10, bottom: 20, left: 30 };
+        const width = 250 - margin.left - margin.right;
+        const height = 150 - margin.top - margin.bottom;
+        const g = svg.append("g").attr("transform", `translate(${margin.left},${margin.top})`);
+
+        const x = d3.scaleBand()
+          .domain(values.map(d => d.label))
+          .range([0, width])
+          .padding(0.2);
+
+        const y = d3.scaleLinear()
+          .domain([0, maxLotSize])
+          .range([height, 0]);
+
+        g.append("g")
+          .attr("transform", `translate(0,${height})`)
+          .call(d3.axisBottom(x).tickSize(0))
+          .selectAll("text").attr("font-size", "10px");
+
+        g.append("g")
+          .call(d3.axisLeft(y).ticks(3).tickFormat(d3.format(".2s")))
+          .selectAll("text").attr("font-size", "10px");
+
+        g.selectAll("rect")
+          .data(values)
+          .enter()
+          .append("rect")
+          .attr("x", d => x(d.label))
+          .attr("y", d => y(d.lot_size))
+          .attr("width", x.bandwidth())
+          .attr("height", d => height - y(d.lot_size))
+          .attr("fill", "#a6b9a3");
+      });
+    });
+  </script>
+</body>
+</html>
