@@ -78,8 +78,6 @@
     .range(d3.schemeTableau10);
 
   // Housing timeline
-  let timelineDataMap = new Map();
-  let timelineMaxUnits = 0;
   let selectedYear = 2020; // default year for timeline
   let densityCsvData = new Map();
   let stackedBarData = [];
@@ -91,12 +89,9 @@
     // Load CSV and GeoJSON data
     // const singleFamilyCsv = await d3.csv(import.meta.env.BASE_URL + 'single_family_zoning/housing_sf_other_w_census.csv');
     const singleFamilyCsv = await d3.csv('single_family_zoning/housing_sf_other_w_census.csv');
-    // singleFamilyGeo = await fetch(import.meta.env.BASE_URL + 'single_family_zoning/housing_sf_other_w_census_reprojected.json').then(res => res.json());
     singleFamilyGeo = await fetch('single_family_zoning/mapc_region_towns_w_population.geojson').then(res => res.json());
     // const unitPriceCsv = await d3.csv(import.meta.env.BASE_URL + 'scatterplot/average_unit_price_by_municipality.csv');
     const unitPriceCsv = await d3.csv('scatterplot/average_unit_price_by_municipality.csv');
-    // const yearMuniAcc = await fetch(import.meta.env.BASE_URL + 'housing_timeline/year_municipality_accumulation_filtered.json').then(res => res.json());
-    const yearMuniAcc = await fetch('housing_timeline/year_municipality_accumulation_filtered.json').then(res => res.json());
     const complianceCsv = await d3.csv('single_family_zoning/compliance_muni_census.csv');
     const mapcPopCsv = await d3.csv('housing_timeline/mapc_region_towns_w_population.csv');
     const densityCsv = await d3.csv('housing_timeline/housing_units_cumulative_by_type.csv');
@@ -169,27 +164,6 @@
         demoCache.set(fid, zeroPercentages);
       }
     });
-
-    // Build timeline cache
-    timelineDataMap = new Map();
-    Object.entries(yearMuniAcc).forEach(([year, municipalities]) => {
-      Object.entries(municipalities).forEach(([muni, totalUnits]) => {
-        if (!timelineDataMap.has(muni)) {
-          timelineDataMap.set(muni, []);
-        }
-        timelineDataMap.get(muni).push({
-          year: parseInt(year),
-          totalUnits: parseFloat(totalUnits || 0)
-        });
-      });
-    });
-
-    // After filling timelineDataMap
-    timelineMaxUnits = d3.max(
-      Array.from(timelineDataMap.entries()).map(([muni, entries]) => 
-        entries.reduce((sum, entry) => sum + entry.totalUnits, 0)
-      )
-    );
 
     // Compliance data
     compScatterplotData = complianceCsv.map(row => {
@@ -1918,12 +1892,12 @@
 
 <main>
   <section id="home" style="
-  padding: 120px 20px;
-  text-align: center;
-  background: linear-gradient(135deg, #f9f4ef 0%, #e8e3dc 100%);
-  position: relative;
-  overflow: hidden;
-">
+    padding: 120px 20px;
+    text-align: center;
+    background: linear-gradient(135deg, #f9f4ef 0%, #e8e3dc 100%);
+    position: relative;
+    overflow: hidden;
+  ">
   <!-- Decorative shapes -->
   <div style="
     position: absolute;
@@ -2022,64 +1996,206 @@
   </style>
 </section>
 
-<section id="history-intro" style="padding: 60px 20px 40px 20px; background: #f9f4ef;">
-  <div class="section-header" style="font-size: 2.5rem; font-weight: bold; margin-bottom: 1.5rem; text-align: center;">The Evolution of Zoning in Boston</div>
+<!-- Page 1: Ancestral Housing Struggle -->
+<section id= "housing_struggle" style="max-width: 900px; margin: 3rem auto; padding: 0 20px;">
+  <div style="
+      background: #f9f4ef;
+      border-radius: 12px;
+      padding: 2.5rem;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+  ">
+    <!-- Comic image -->
+    <img
+      src="/images/comic-ancestors.png"
+      alt="Ancestors Searching for Housing"
+      style="width: 100%; border-radius: 8px; margin-bottom: 1.5rem;"
+    />
 
-  <div style="text-align: center; margin-bottom: 2rem;">
-    <!-- <img src="{import.meta.env.BASE_URL}images/zoninglaws.jpg" alt="Zoning Laws Timeline" 
-      style="max-width: 100%; height: auto; border-radius: 12px; box-shadow: 0 4px 8px rgba(0,0,0,0.1);" /> -->
-    <img src="images/zoninglaws.jpg" alt="Zoning Laws Timeline" 
-      style="max-width: 100%; height: auto; border-radius: 12px; box-shadow: 0 4px 8px rgba(0,0,0,0.1);" />
-  </div>
-
-  <div style="max-width: 800px; margin: 0 auto;">
-    <!-- Combined Beginning + Shift -->
-    <div style="margin-bottom: 2.5rem;">
-      <h3 style="font-size: 1.5rem; color: #5c5145; margin-bottom: 1rem;">From Planning to Exclusion</h3>
-      <p style="font-size: 1.15rem; line-height: 1.7; color: #333; margin-bottom: 1rem;">
-        In the early 1900s, zoning laws were created to organize land use and improve public safety. 
-        But by the 1920s in Boston, these rules became tools for <strong style="color: #5c5145;">segregation</strong>, 
-        deliberately limiting housing access for marginalized groups through single-family zoning 
-        and restrictive building codes.
-      </p >
-      <p style="font-style: italic; font-size: 1rem; color: #777; text-align: center;">
-        The map of the city was being redrawn — but not for everyone's benefit
-      </p >
+    <!-- Header -->
+    <div class="section-header" style="font-size: 2.5rem;">
+      Ancestral Housing Struggle
     </div>
 
-    <!-- Combined Impact + Future -->
-    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 2rem; margin-top: 2rem;">
-      <div>
-        <h3 style="font-size: 1.5rem; color: #5c5145; margin-bottom: 1rem;">Lasting Consequences</h3>
-        <p style="font-size: 1.15rem; line-height: 1.7; color: #333;">
-          These policies created <strong>lasting divides</strong> — today's housing prices, 
-          neighborhood segregation, and limited affordable options still reflect 
-          century-old zoning choices.
-        </p >
-        <div style="text-align: center; margin: 1.5rem 0;">
-          <!-- <img src="{import.meta.env.BASE_URL}images/figure1.jpg" alt="Zoning Impact"
-            style="max-width: 100%; height: auto; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);" /> -->
-          <img src="images/figure1.jpg" alt="Zoning Impact"
-            style="max-width: 100%; height: auto; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);" />
-        </div>
-      </div>
+    <!-- Guide text -->
+    <p style="font-size: 1.2rem; line-height: 1.6; color: #7c6757; text-align: center; margin-bottom: 1.8rem;">
+      From the 1950s onward, families across generations have faced the same challenge: finding a home they can afford.  
+      Grandparents combed neighborhoods for “FOR RENT” signs, only to find prices rising beyond their means.
+    </p>
 
-      <div>
-        <h3 style="font-size: 1.5rem; color: #5c5145; margin-bottom: 1rem;">Pathways to Reform</h3>
-        <p style="font-size: 1.15rem; line-height: 1.7; color: #333;">
-          Cities like Minneapolis are proving change is possible by eliminating 
-          <em>single-family-only zoning</em>. Boston now faces a choice: 
-          maintain exclusionary systems or create <strong style="color: #5c5145;">inclusive communities</strong> 
-          through zoning reform.
-        </p >
-        <p style="font-style: italic; font-size: 1rem; color: #777; margin-top: 1.5rem;">
-          We can build a better future — if we change how we plan it.
-        </p >
+    <!-- Take-aways -->
+    <ul style="list-style: disc inside; font-size: 1.1rem; line-height: 1.6; color: #7c6757; max-width: 700px; margin: 0 auto;">
+      <li>Housing costs have outpaced wage growth since the post-war era.</li>
+      <li>Single-family zoning and lack of multi-unit options squeezed supply.</li>
+      <li>Today’s young adults still inherit a legacy of limited, expensive choices.</li>
+    </ul>
+  </div>
+</section>
+
+<!-- Timeline Section -->
+<section id="housing_timeline" style="max-width: 900px; margin: 3rem auto; padding: 0 20px;">
+  <div class="section-header" style="font-size: 2.5rem;">
+    Housing Struggles Across Decades
+  </div>
+
+  <div style="position: relative; padding: 2rem 0;">
+    <!-- Vertical timeline line -->
+    <div style="
+      position: absolute;
+      top: 0;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 4px;
+      height: 100%;
+      background: #ddd;
+    "></div>
+
+    <!-- Timeline Entry: 1950s -->
+    <div style="
+      position: relative;
+      width: 50%;
+      padding: 1rem 2rem 1rem 0;
+      box-sizing: border-box;
+      text-align: right;
+    ">
+      <div style="
+        position: absolute;
+        right: -9px;
+        top: 1.5rem;
+        width: 18px;
+        height: 18px;
+        background: #f9f4ef;
+        border: 3px solid #5c5145;
+        border-radius: 50%;
+      "></div>
+
+      <div class="timeline-card" style="
+        display: inline-block;
+        background: white;
+        border-radius: 12px;
+        padding: 1rem;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+      ">
+        <h3 style="margin: 0 0 0.5rem; font-size: 1.4rem; color: #5c5145;">1950s:</h3>
+        <h3 style="margin: 0 0 0.5rem; font-size: 1.2rem; color: #5c5145;">Suburban Single-Family Zoning</h3>
+        <img src="/images/comic-1950s.png" alt="1950s housing"
+             style="width: 200px; border-radius: 6px; margin-bottom: 0.5rem;" />
+        <p style="margin: 0; font-size: 1rem; color: #7c6757; line-height: 1.4;">
+          In the post-war boom, Boston and its suburbs adopted large-lot, single-family zoning districts. Grandparents scoured rental ads—only to find costs climbing beyond reach.
+        </p>
+      </div>
+    </div>
+
+    <!-- Timeline Entry: 1980s -->
+    <div style="
+      position: relative;
+      width: 50%;
+      left: 50%;
+      padding: 1rem 0 1rem 2rem;
+      box-sizing: border-box;
+      text-align: left;
+    ">
+      <div style="
+        position: absolute;
+        left: -9px;
+        top: 1.5rem;
+        width: 18px;
+        height: 18px;
+        background: #f9f4ef;
+        border: 3px solid #5c5145;
+        border-radius: 50%;
+      "></div>
+
+      <div class="timeline-card" style="
+        display: inline-block;
+        background: white;
+        border-radius: 12px;
+        padding: 1rem;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+      ">
+        <h3 style="margin: 0 0 0.5rem; font-size: 1.4rem; color: #5c5145;">1980s:</h3>
+        <h3 style="margin: 0 0 0.5rem; font-size: 1.2rem; color: #5c5145;">Redlining and Discretionary Controls</h3>
+        <img src="/images/comic-1980s.png" alt="1980s housing"
+             style="width: 200px; border-radius: 6px; margin-bottom: 0.5rem;" />
+        <p style="margin: 0; font-size: 1rem; color: #7c6757; line-height: 1.4;">
+          Their children faced the same “FOR RENT” frustration in growing cities. Although formal redlining maps date earlier, the 1980s saw their legacy solidify in zoning practice: neighborhoods graded “hazardous” (often communities of color) remained problematic.
+        </p>
+      </div>
+    </div>
+
+    <!-- Timeline Entry: 2000s -->
+    <div style="
+      position: relative;
+      width: 50%;
+      padding: 1rem 2rem 1rem 0;
+      box-sizing: border-box;
+      text-align: right;
+    ">
+      <div style="
+        position: absolute;
+        right: -9px;
+        top: 1.5rem;
+        width: 18px;
+        height: 18px;
+        background: #f9f4ef;
+        border: 3px solid #5c5145;
+        border-radius: 50%;
+      "></div>
+
+      <div class="timeline-card" style="
+        display: inline-block;
+        background: white;
+        border-radius: 12px;
+        padding: 1rem;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+      ">
+        <h3 style="margin: 0 0 0.5rem; font-size: 1.4rem; color: #5c5145;">2000s:</h3>
+        <h3 style="margin: 0 0 0.5rem; font-size: 1.2rem; color: #5c5145;">Inclusionary Development Policy (IDP)</h3>
+        <img src="/images/comic-2000s.png" alt="2000s housing"
+             style="width: 200px; border-radius: 6px; margin-bottom: 0.5rem;" />
+        <p style="margin: 0; font-size: 1rem; color: #7c6757; line-height: 1.4;">
+          In 2000, Mayor Menino issued an executive order creating Boston’s first Inclusionary Development Policy. Any new project of ten-plus units needing zoning relief or City financing must include a share of permanently income-restricted homes.
+        </p>
+      </div>
+    </div>
+
+    <!-- Timeline Entry: 2020s -->
+    <div style="
+      position: relative;
+      width: 50%;
+      left: 50%;
+      padding: 1rem 0 1rem 2rem;
+      box-sizing: border-box;
+      text-align: left;
+    ">
+      <div style="
+        position: absolute;
+        left: -9px;
+        top: 1.5rem;
+        width: 18px;
+        height: 18px;
+        background: #f9f4ef;
+        border: 3px solid #5c5145;
+        border-radius: 50%;
+      "></div>
+
+      <div class="timeline-card" style="
+        display: inline-block;
+        background: white;
+        border-radius: 12px;
+        padding: 1rem;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+      ">
+        <h3 style="margin: 0 0 0.5rem; font-size: 1.4rem; color: #5c5145;">2020s:</h3>
+        <h3 style="margin: 0 0 0.5rem; font-size: 1.2rem; color: #5c5145;">MBTA Communities Act & Ongoing Reforms</h3>
+        <img src="/images/comic-2020s.png" alt="2020s housing"
+             style="width: 200px; border-radius: 6px; margin-bottom: 0.5rem;" />
+        <p style="margin: 0; font-size: 1rem; color: #7c6757; line-height: 1.4;">
+          In 2021, the state enacted the MBTA Communities Act, requiring the 177 municipalities served by MBTA transit (Boston itself is exempt) to zone for walkable, moderate-density multifamily housing near stations. Concurrently, Boston updated its IZ rules in late 2024, raising set-aside requirements to further boost affordability. However, today’s renters see “RENT TOO HIGH” on every listing—proof the cycle continues.
+        </p>
       </div>
     </div>
   </div>
 </section>
-
 
 <section id="key-takeaways" style="max-width: 1200px; margin: 3rem auto; padding: 0 20px;">
     <h2 style="font-size: 2.5rem; font-weight: bold; margin-bottom: 1.5rem; text-align: center;">Navigating Boston's Housing Landscape</h2>
@@ -2364,8 +2480,124 @@
 
 </main>
   
-<footer>
+<footer style="
+    color: white;
+    padding: 2rem 20px;
+    text-align: center;
+  ">
+
+  <div style="
+    font-size: 1.3rem;
+    font-weight: 600;
+    margin-bottom: 0.75rem;
+    text-align: center;
+  ">
+    Acknowledgements
+  </div>
+
+  <div style="
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.75rem;
+    font-size: 1rem;
+    color: white;
+    margin-bottom: 1.5rem;
+    text-align: center;
+    max-width: 800px;
+    margin-left: auto;
+    margin-right: auto;
+    ">
+    <p style="margin: 0;">
+    This project was developed with guidance and feedback from the  
+    <a href="https://www.mapc.org" style="color: white; text-decoration: underline;">
+      Metropolitan Area Planning Council (MAPC)
+    </a> 
+    as part of MIT's <em>Data Visualization and Society</em> course.
+    </p>
+    <p style="margin: 0;">
+    We’re grateful to the course staff for their support throughout the semester—especially in helping us clarify our ideas, iterate on design, and ground our work in real community impact.
+    </p>
+    <p style="margin: 0;">
+    Comic illustrations were generated with AI to visualize key moments across housing history.
+    </p>
+  </div>
+
+  <div style="
+      font-size: 1.3rem;
+      font-weight: 600;
+      margin-bottom: 0.75rem;
+  ">
+    References
+  </div>
+
+  <!-- References in the footer -->
+  <div style="
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 1.5rem;
+      margin-bottom: 1.5rem;
+  ">
+    <a href="https://www.bostonfairhousing.org/timeline/1950s-1975-Suburbs.html"
+       style="color: white; text-decoration: underline; font-size: 1rem;">
+      Boston Fair Housing
+    </a >
+    <a href="https://www.bostonindicators.org/-/media/indicators/boston-indicators-reports/report-files/exclusionarybydesign_report_nov_8.pdf"
+       style="color: white; text-decoration: underline; font-size: 1rem;">
+      Exclusionary by Design
+    </a >
+    <a href="https://www.bostonplans.org/getattachment/43eefea6-85ae-48ee-965a-6358ea84bc7e"
+       style="color: white; text-decoration: underline; font-size: 1rem;">
+      Boston's Inclusionary Development Policy
+    </a >
+    <a href="https://www.mass.gov/info-details/mbta-communities-law-qa"
+       style="color: white; text-decoration: underline; font-size: 1rem;">
+      MBTA Communities Law
+    </a >
+    <a href="https://www.nerdwallet.com/article/mortgages/average-down-payment-on-a-house"
+       style="color: white; text-decoration: underline; font-size: 1rem;">
+      Average Down Payment on a House
+    </a >
+    <a href="https://www.chase.com/personal/mortgage/education/financing-a-home/what-percentage-income-towards-mortgage"
+       style="color: white; text-decoration: underline; font-size: 1rem;">
+      Income Toward Mortgage
+    </a >
+  </div>
+
+  <!-- Data Sources -->
+  <div style="
+      font-size: 1.3rem;
+      font-weight: 600;
+      margin-bottom: 0.75rem;
+  ">
+    Data Sources
+  </div>
+  <div style="
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 1.5rem;
+      margin-bottom: 1.5rem;
+  ">
+    <a href="https://www.mass.gov/info-details/massgis-data-2020-us-census-towns"
+       style="color: white; text-decoration: underline; font-size: 1rem;">
+      Boston Census 2020
+    </a >
+    <a href="https://datacommon.mapc.org/browser/datasets/390"
+       style="color: white; text-decoration: underline; font-size: 1rem;">
+      MAPC Parcel Zoning Compliance Data
+    </a >
+    <a href="https://datacommon.mapc.org/browser/datasets/421"
+       style="color: white; text-decoration: underline; font-size: 1rem;">
+      Boston Single Family Zoning Data
+    </a >
+  </div>
+
+  <!-- Project credits -->
+  <div style="font-size: 0.9rem;">
     Blueprint Boston | Sophie Suo, Cynthia Qi, Tiffany Wang | Spring 2025
+  </div>
 </footer>
 
 <style>
@@ -2859,10 +3091,11 @@
 </style>
 
 <div class="nav-dots">
-  <a href="#home" data-tooltip="Home" class="home-icon"></a>
-  <a href="#history-intro" data-tooltip="History"></a>
-  <a href="#key-takeaways" data-tooltip="Key Takeaways"></a>
-  <a href="#price" data-tooltip="Affordability"></a>
-  <a href="#timeline" data-tooltip="Timeline"></a>
-  <a href="#map" data-tooltip="Explorer"></a>
+  <a href="#home" data-tooltip="Home" class="home-icon" aria-label="Go to Home Page"></a>
+  <a href="#housing_struggle" data-tooltip="Housing Struggles" aria-label="Go to Housing Struggles Section"></a>
+  <a href="#housing_timeline" data-tooltip="Housing Timeline" aria-label="Go to Housing Timeline Section"></a>
+  <a href="#key-takeaways" data-tooltip="Key Takeaways" aria-label="Go to Key Takeaways Section"></a>
+  <a href="#price" data-tooltip="Affordability" aria-label="Affordability"></a>
+  <a href="#timeline" data-tooltip="Housing Growth" aria-label="Go to Housing Growth Section"></a>
+  <a href="#map" data-tooltip="Housing Access" aria-label="Go to Housing Access Section"></a>
 </div>
