@@ -293,7 +293,7 @@
 
     svg.selectAll("*").remove();
 
-    const margin = { top: 30, right: 20, bottom: 40, left: 50 };
+    const margin = { top: 30, right: 20, bottom: 60, left: 50 };
     const width = parseInt(svg.style("width")) - margin.left - margin.right;
     const height = parseInt(svg.style("height")) - margin.top - margin.bottom;
 
@@ -306,7 +306,7 @@
       .padding(0.3);
 
     const y = d3.scaleLinear()
-      .domain([0, d3.max(lotSizeData, d => d.value)])
+      .domain([0, d3.max(lotSizeData, d => d.value) * 1.1])
       .range([height, 0]);
 
     // Axes
@@ -321,7 +321,7 @@
       .selectAll("text")
       .style("font-size", "10px");
 
-    // Bars
+    // Bars with neutral fill
     g.selectAll("rect")
       .data(lotSizeData)
       .enter()
@@ -330,7 +330,7 @@
       .attr("y", d => y(d.value))
       .attr("width", x.bandwidth())
       .attr("height", d => height - y(d.value))
-      .attr("fill", "#a6b9a3");
+      .attr("fill", "#a0b5a0"); // desaturated green or neutral tone
 
     // Chart title
     svg.append("text")
@@ -350,13 +350,28 @@
       .style("font-size", "10px")
       .text("Lot Size (sqft)");
 
-    // X-axis label
+    // Compliance progress bar below chart
+    svg.append("rect")
+      .attr("x", margin.left)
+      .attr("y", parseInt(svg.style("height")) - 35)
+      .attr("width", width)
+      .attr("height", 14)
+      .attr("fill", "#eee");
+
+    svg.append("rect")
+      .attr("x", margin.left)
+      .attr("y", parseInt(svg.style("height")) - 35)
+      .attr("width", width * data.compliance_rate)
+      .attr("height", 14)
+      .attr("fill", "#5e8c5a");
+
     svg.append("text")
-      .attr("x", parseInt(svg.style("width")) / 2)
-      .attr("y", parseInt(svg.style("height")) - 6)
+      .attr("x", margin.left + width / 2)
+      .attr("y", parseInt(svg.style("height")) - 10)
       .attr("text-anchor", "middle")
       .style("font-size", "10px")
-      .text("Percentile");
+      .style("fill", "#444")
+      .text(`Zoning Compliance: ${(data.compliance_rate * 100).toFixed(0)}%`);
   }
 
   async function initZoningMap() {
@@ -447,7 +462,7 @@
       .attr("text-anchor", "middle")
       .style("font-size", "14px")
       .style("fill", "#5a4e4d")
-      .text("Housing Density (units per 10,000 sq mi)");
+      .text("Housing Density (units per 10,000 sq meter)");
   }
 
 
@@ -557,7 +572,7 @@
           .html(
             `<b>${d.data.Municipality}</b><br>` +
             `Category: <b>${category}</b><br>` +
-            `Density: ${value.toFixed(1)} units / 10,000 sq mi<br>` +
+            `Density: ${value.toFixed(1)} units / 10,000 sq meter<br>` +
             `Total: ${d.data.totalDensity.toFixed(1)}`
           )
           .style("left", (event.pageX + 10) + "px")
@@ -2065,7 +2080,8 @@
       text-shadow: 1px 1px 2px rgba(0,0,0,0.05);
       animation: fadeInUp 0.8s ease-out;
     ">
-      Reforming Zoning for<br> <span style="color: #d4a593;">Affordable Housing</span>
+      <!-- Reforming Zoning for<br> <span style="color: #d4a593;">Affordable Housing</span> -->
+      Zoning, Housing, and the Unequal Map of Opportunity
     </h1>
 
     <p style="
@@ -2076,10 +2092,10 @@
       line-height: 1.6;
       animation: fadeInUp 0.8s ease-out 0.2s both;
     ">
-      Discover how zoning shapes your opportunities — and how reforms can unlock more affordable housing options for everyone.
+      Explore how generations of families have faced housing barriers — and how today’s zoning laws still shape who gets to live where.
     </p >
 
-    <a href="#history-intro" style="
+    <a href="#housing_struggle" style="
       display: inline-block;
       padding: 10px 24px;
       background-color: #F8D6C5;
@@ -2458,8 +2474,12 @@
           <div class="section-header">Emergency of Housing Over Time</div>
           
           <p style="margin-top: 1rem; font-size: 0.95rem; line-height: 1.5;">
-            
-          </p>
+            To understand the <span style="color: #7c6757; font-weight: 600;">urgency of zoning reform</span>, we need to see not just where housing exists — but <span style="color: #7c6757; font-weight: 600;">where it’s actually being added</span>. This chart shows how many new housing units were built across Greater Boston from 1985 to 2025, <span style="color: #7c6757; font-weight: 600;">normalized by land area</span>.<br><br>
+          
+            Despite four decades of opportunity, <span style="color: #7c6757; font-weight: 600;">most towns added shockingly few homes</span>. Even in Cambridge — the region’s densest municipality — <span style="color: #7c6757; font-weight: 600;">only 12 units per 10,000 square meters</span> were added over 40 years. And just <span style="color: #7c6757; font-weight: 600;">2.4 of those were single-family homes</span>, making up <span style="color: #7c6757; font-weight: 600;">less than 7%</span> of the total.<br><br>
+          
+            This pattern highlights a deeper tension: while <span style="color: #7c6757; font-weight: 600;">single-family zoning still dominates land use</span>, it does not reflect where housing growth is happening. Instead, <span style="color: #7c6757; font-weight: 600;">restrictive zoning has throttled supply</span> — especially in places where single-family rules remain the norm. <span style="color: #7c6757; font-weight: 600;">Without reform, these patterns will continue to limit access</span> for the next generation.
+          </p>                
         </div>
       </div>      
   
