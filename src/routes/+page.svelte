@@ -32,6 +32,7 @@
   let tooltip;
   let x;
   let y;
+  let muniSelected = false;
 
   // Define groups of columns for each income level
   let selectedIncomeLevel = 3; // slider value (0-5)
@@ -286,6 +287,24 @@
     const data = muniSummaryMap.get(muniName.trim().toLowerCase());
     if (!data) return;
 
+    if (muniName.toLowerCase().trim() === "framingham") {
+      svg.selectAll("*").remove();
+      svg.append("foreignObject")
+        .attr("x", 0)
+        .attr("y", 20)
+        .attr("width", parseInt(svg.style("width")))
+        .attr("height", 100)
+        .append("xhtml:div")
+        .style("font-size", "15px")
+        .style("color", "#5c4a56")
+        .style("width", "90%")
+        .style("margin", "0 auto")
+        .style("text-align", "center")
+        .html("Data for Framingham contains inconsistencies. Unfortunately, lot size and zoning compliance information cannot be shown.");
+      return;
+    }
+
+
     const lotSizeData = [
       { label: "25th", value: data.lot_25 },
       { label: "Median", value: data.lot_50 },
@@ -318,7 +337,7 @@
       .style("font-size", "10px");
 
     g.append("g")
-      .call(d3.axisLeft(y).ticks(3))
+      .call(d3.axisLeft(y).ticks(3).tickFormat(d => `${d / 1000}K`))
       .selectAll("text")
       .style("font-size", "10px");
 
@@ -331,7 +350,7 @@
       .attr("y", d => y(d.value))
       .attr("width", x.bandwidth())
       .attr("height", d => height - y(d.value))
-      .attr("fill", "#a0b5a0"); // desaturated green or neutral tone
+      .attr("fill", "#baa6d0"); // pastel purple
 
     // Chart title
     svg.append("text")
@@ -364,14 +383,14 @@
       .attr("y", parseInt(svg.style("height")) - 35)
       .attr("width", width * data.compliance_rate)
       .attr("height", 14)
-      .attr("fill", "#5e8c5a");
+      .attr("fill", data.compliance_rate < 0.5 ? "red" : "#baa6d0");
 
     svg.append("text")
       .attr("x", margin.left + width / 2)
       .attr("y", parseInt(svg.style("height")) - 10)
       .attr("text-anchor", "middle")
       .style("font-size", "10px")
-      .style("fill", "#444")
+      .style("fill", "#5c4a56")
       .text(`Zoning Compliance: ${(data.compliance_rate * 100).toFixed(0)}%`);
   }
 
@@ -1975,6 +1994,7 @@ function updateLineChart(municipalityName) {
     .lower() // put it behind everything
     .on("click", () => {
       selectedMuni = null;
+      muniSelected = false;
 
       // Reset all circles appearance
       const circles = d3.select("#scatterplot svg g").selectAll("circle");
@@ -2154,6 +2174,7 @@ function updateLineChart(municipalityName) {
 
   function updateSelectedMuni(muniName, showTooltip = false) {
     selectedMuni = muniName;
+    muniSelected = true;
 
     const circles = d3.select("#scatterplot svg g").selectAll("circle");
     circles
@@ -2166,11 +2187,30 @@ function updateLineChart(municipalityName) {
 
     const infoBox = document.getElementById("municipality-info");
     if (infoBox) {
+      let explanation = "";
+
+      if (match.muni === "Cambridge") {
+        explanation = `
+          <p style="margin-top: 0.75rem; font-size: 0.85rem; line-height: 1.4;">
+            <strong>Cambridge is a major outlier.</strong><br>
+            Despite high household incomes, home prices are so elevated that it would take <strong>over 127 years</strong> to pay off a typical unit.
+            This extreme mismatch reflects <em>high demand, restricted housing supply,</em> and <em>zoning limits</em>, raising serious barriers to affordability in this high-opportunity city.
+          </p>`;
+      } else if (match.muni === "Boston") {
+        explanation = `
+          <p style="margin-top: 0.75rem; font-size: 0.85rem; line-height: 1.4;">
+            <strong>Boston is a major outlier.</strong><br>
+            With a <strong>68-year payoff time</strong>, the city’s housing costs dramatically outpace what most residents earn.
+            Boston’s case highlights how <em>urban demand, uneven income distribution,</em> and <em>tight zoning policies</em> distort affordability even in cities with strong job markets.
+          </p>`;
+      }
+
       infoBox.innerHTML = `
         <strong>${match.muni}</strong><br/>
         <b>Avg Income:</b> ${formatMillions(match.avgIncome)}<br/>
         <b>Avg Unit Price:</b> ${formatMillions(match.avgUnitPrice)}<br/>
         <b>Years to Pay Off*:</b> ${match.yearsToPayoff.toFixed(1)}<br/>
+        ${explanation}
         <br/>
         <svg id="lot-size-chart" width="350" height="250"></svg>
       `;
@@ -2626,14 +2666,15 @@ function updateLineChart(municipalityName) {
       <div style="flex: 1; min-width: 300px; background-color: rgba(255, 255, 255, 0.9); padding: 2rem; display: flex; flex-direction: column; justify-content: space-between;">
         <div class="section-header">Affordability Explorer</div>
         <!-- Top Box: Key Takeaway -->
-        <div style="flex: 0 0 180px; border: 1px solid #ccc; border-radius: 8px; padding: 1rem; background: #fff;">
-          <h4>Key Takeaway</h4>
-          <p>Summary of the scatterplot...</p>
-          <ul>
-            <li>Income vs Price</li>
-            <li>Affordability assumptions</li>
-          </ul>
-        </div>
+        <p style="margin-top: 1rem; font-size: 0.95rem; line-height: 1.5;">
+          
+          To understand how <span style="color: #7c6757; font-weight: 600;">housing affordability varies across Greater Boston</span>, we need to compare <span style="color: #7c6757; font-weight: 600;">what households earn</span> to <span style="color: #7c6757; font-weight: 600;">what homes cost</span>. This scatterplot maps each municipality by its <span style="color: #7c6757; font-weight: 600;">average household income</span> and <span style="color: #7c6757; font-weight: 600;">average home purchase price</span>, helping first-time buyers quickly spot areas where <span style="color: #7c6757; font-weight: 600;">prices align with income—or don’t</span>.<br><br>
+          {#if !muniSelected}
+          The <span style="color: #7c6757; font-weight: 600;">red dashed line</span> shows the threshold for buying a home with <span style="color: #7c6757; font-weight: 600;">10 years of income*</span>. <span style="color: #7c6757; font-weight: 600;">Points below the line</span> represent places where homes may be more affordable relative to earnings, while <span style="color: #7c6757; font-weight: 600;">points above</span> indicate towns where home prices significantly outpace what residents typically make.<br><br>
+        
+          <span style="color: #7c6757; font-weight: 600;">Hover over each dot</span> to see municipality details, or <span style="color: #7c6757; font-weight: 600;">use the dropdown</span> to explore specific towns. <span style="color: #7c6757; font-weight: 600;">Boston and Cambridge stand out as outliers</span>—click on them to learn why their numbers defy regional trends and what that means for affordability access in high-demand cities.
+          {/if}
+        </p>        
 
         <!-- Bottom Box: Municipality Info -->
         <div style="flex: 1; border: 1px solid #ccc; border-radius: 8px; padding: 1rem; background: #fff; overflow-y: auto;">
@@ -2673,13 +2714,13 @@ function updateLineChart(municipalityName) {
             <div id="scatterplot" style="position: relative; width: 100%; height: 550px;"></div>
           </div>
 
-          <div style="font-size: 0.75rem; color: #555; margin-top: 1rem; text-align: left;">
+          <div style="font-size: 0.75rem; color: #5c4a56; margin-top: 1rem; text-align: left;">
             * We assume a 9% down payment for first-time home buyers (<a href="https://www.nerdwallet.com/article/mortgages/average-down-payment-on-a-house" target="_blank" style="color: #555; text-decoration: underline;">source</a>) and 28% of salary allocated to mortgage payments (<a href="https://www.chase.com/personal/mortgage/education/financing-a-home/what-percentage-income-towards-mortgage" target="_blank" style="color: #555; text-decoration: underline;">source</a>).
           </div>
         </div>
       </div>
 
-  </section>      
+  </section>        
 
   <section id="timeline" class="alt-bg">
     <div style="display: flex; flex-wrap: wrap; gap: 2rem; align-items: stretch; min-height: 100vh;">
