@@ -2,6 +2,7 @@
   import { onMount } from "svelte";
   import mapboxgl from "mapbox-gl";
   import * as d3 from "d3";
+  import { parse } from "svelte/compiler";
 
   const MAPBOX_TOKEN = 'pk.eyJ1Ijoic3N1byIsImEiOiJjbTk5Z2NnNWIwNDh5MnJwdjFwZGhnZmU2In0.DlLRt3C3qdBGprZR4SvRVQ';
 
