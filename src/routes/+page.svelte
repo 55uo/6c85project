@@ -14,6 +14,7 @@
   let singleFamilyGeo;
   let singleFamilyCsvData = new Map();
   let complianceCsvData = new Map();
+  let mapcPopCsvData = new Map();
   let activeTab = 'income'; // default tab
   let usePercentage = true; // true = show %; false = show raw counts
 
@@ -71,17 +72,9 @@
     "Nonfamily Households - 7+ people": "nfhh7o"
   };
 
-  // const groupLabels = activeTab === 'demographics'
-  //   ? Object.keys(demographicColumns)
-  //   : activeTab === 'income'
-  //     ? incomeLevelGroups.map((g, i) => `Group ${i}`)
-  //     : Object.keys(familySizeOptions);
-
-  // const colorScale = d3.scaleOrdinal().domain(groupLabels).range(d3.schemeSet2);
-
   const colorScale = d3.scaleOrdinal()
-  .domain(Object.keys(demographicColumns)) // or income ranges / family size
-  .range(d3.schemeTableau10);
+    .domain(Object.keys(demographicColumns)) // or income ranges / family size
+    .range(d3.schemeTableau10);
 
   // Housing timeline
   let timelineDataMap = new Map();
@@ -89,6 +82,9 @@
   let barSvg, barX, barY;
   let selectedYear = 2025; // default year for timeline
   let searchQuery = ''; // for filtering municipalities
+
+  // compliance scatterplot
+  let compScatterplotData = [];
 
   async function loadData() {
     // Load CSV and GeoJSON data
@@ -101,6 +97,7 @@
     // const yearMuniAcc = await fetch(import.meta.env.BASE_URL + 'housing_timeline/year_municipality_accumulation_filtered.json').then(res => res.json());
     const yearMuniAcc = await fetch('housing_timeline/year_municipality_accumulation_filtered.json').then(res => res.json());
     const complianceCsv = await d3.csv('single_family_zoning/compliance_muni_census.csv');
+    const mapcPopCsv = await d3.csv('housing_timeline/mapc_region_towns_w_population.csv');
 
     // Build CSV map
     singleFamilyCsvData = new Map();
@@ -111,6 +108,10 @@
     complianceCsv.forEach(row => {
       complianceCsvData.set(parseInt(row.muni_id), row);
     });
+    mapcPopCsvData = new Map();
+    mapcPopCsv.forEach(row => {
+      mapcPopCsvData.set(parseInt(row.town_id), row);
+    });
 
     // Build unit price map
     const unitPriceMap = new Map();
@@ -119,7 +120,7 @@
         unitPriceMap.set(d.muni.trim().toLowerCase(), parseFloat(d.average_unit_price));
       }
     });
-    console.log("Unit Price Map: ", unitPriceMap);
+    // console.log("Unit Price Map: ", unitPriceMap);
 
     // Build precomputed cache
     singleFamilyCsv.forEach(row => {
@@ -182,6 +183,25 @@
         entries.reduce((sum, entry) => sum + entry.totalUnits, 0)
       )
     );
+
+    // Compliance data
+    compScatterplotData = complianceCsv.map(row => {
+      const fid = row.muni_id;
+      const town = row.municipal;
+      const totalPopulation = parseFloat(row.pop || 0);
+      const singleFamilyPercent = parseFloat(singleFamilyCsvData.get(parseInt(fid))?.["%_single_family"] || 0);
+      const compliantZoningRate = parseFloat(row["%_compliant_zoning"] || 0);
+      const house20 = mapcPopCsvData.get(parseInt(fid))?.housing20 || 0;
+
+      return {
+        fid,
+        town,
+        totalPopulation,
+        compliantZoningRate,
+        house20,
+        singleFamilyPercent,
+      };
+    });
 
     const incomeMidpoints = {
       incu10: 5000,
@@ -253,7 +273,7 @@
       };
     }).filter(d => d.avgIncome !== null && d.avgUnitPrice !== null);
 
-    console.log('Scatter Data', scatterData);
+    // console.log('Scatter Data', scatterData);
   }
 
   function onSearch(event) {
@@ -490,6 +510,287 @@
     .attr("y", (i) => barY((i + 6) * brickHeightUnits))
   });
 }
+
+  function initComplianceScatterplot() {
+    const margin = { top: 20, right: 20, bottom: 50, left: 60 };
+    const width = 400 - margin.left - margin.right;
+    const height = 300 - margin.top - margin.bottom;
+
+    const filteredData = compScatterplotData.filter(d => d.singleFamilyPercent > 0.15);
+
+    const container = d3.select("#compliance-scatterplot");
+    container.selectAll("svg").remove();
+
+    const svg = container.append("svg")
+      .attr("viewBox", `0 0 ${width + margin.left + margin.right} ${height + margin.top + margin.bottom}`)
+      .append("g")
+      .attr("transform", `translate(${margin.left},${margin.top})`);
+
+    const xMin = d3.min(filteredData, d => d.singleFamilyPercent) - 5;
+    const xMax = d3.max(filteredData, d => d.singleFamilyPercent) + 5;
+    const yMin = d3.min(filteredData, d => d.compliantZoningRate / 100) - 0.05;
+    const yMax = d3.max(filteredData, d => d.compliantZoningRate / 100) + 0.05;
+
+    const x = d3.scaleLinear().domain([Math.max(0, xMin), Math.min(100, xMax)]).range([0, width]);
+    const y = d3.scaleLinear().domain([Math.max(0, yMin), Math.min(1, yMax)]).range([height, 0]);
+    const r = d3.scaleSqrt()
+      .domain([0, d3.max(filteredData, d => d.totalPopulation)])
+      .range([2, 12]);
+    const color = d3.scaleOrdinal()
+      .domain(["Urban Core", "Suburb", "Rural"])
+      .range(["#fdbb84", "#fc4e2a", "#9932cc"]);
+
+    const tooltip = container.append("div")
+      .style("position", "absolute")
+      .style("background", "white")
+      .style("padding", "6px 10px")
+      .style("border", "1px solid #ccc")
+      .style("border-radius", "6px")
+      .style("font-size", "12px")
+      .style("pointer-events", "none")
+      .style("opacity", 0);
+
+    svg.append("g")
+      .attr("transform", `translate(0,${height})`)
+      .call(d3.axisBottom(x).tickFormat(d => `${d.toFixed(0)}%`));
+
+    svg.append("g")
+      .call(d3.axisLeft(y).tickFormat(d3.format(".0%")));
+
+    svg.append("text")
+      .attr("x", width / 2)
+      .attr("y", height + 40)
+      .attr("text-anchor", "middle")
+      .text("% Single-Family Units");
+
+    svg.append("text")
+      .attr("transform", "rotate(-90)")
+      .attr("x", -height / 2)
+      .attr("y", -45)
+      .attr("text-anchor", "middle")
+      .text("Zoning Compliance Rate");
+
+    svg.selectAll("circle")
+      .data(filteredData)
+      .enter()
+      .append("circle")
+      .attr("cx", d => x(d.singleFamilyPercent))
+      .attr("cy", d => y(d.compliantZoningRate / 100))
+      .attr("r", d => r(d.totalPopulation))
+      .attr("fill", d => color(d.region))
+      .attr("opacity", 0.75)
+      .attr("stroke", "#333")
+      .on("mouseover", (event, d) => {
+        tooltip.transition().duration(200).style("opacity", 0.9);
+        tooltip.html(`
+          <strong>${d.town || "Unknown"}</strong><br/>
+          % Single-Family: ${d.singleFamilyPercent.toFixed(1)}%<br/>
+          % Compliant Zoning: ${d.compliantZoningRate.toFixed(1)}%<br/>
+          Population: ${d.totalPopulation.toLocaleString()}
+        `)
+          .style("left", (event.pageX + 10) + "px")
+          .style("top", (event.pageY - 28) + "px");
+      })
+      .on("mousemove", (event) => {
+        tooltip.style("left", (event.pageX + 10) + "px")
+          .style("top", (event.pageY - 28) + "px");
+      })
+      .on("mouseout", () => {
+        tooltip.transition().duration(300).style("opacity", 0);
+      });
+
+    // === Linear regression (least squares) ===
+    const xVals = filteredData.map(d => d.singleFamilyPercent);
+    const yVals = filteredData.map(d => d.compliantZoningRate / 100);
+    const n = xVals.length;
+    const xMean = d3.mean(xVals);
+    const yMean = d3.mean(yVals);
+    const slope = d3.sum(xVals.map((x, i) => (x - xMean) * (yVals[i] - yMean))) /
+                  d3.sum(xVals.map(x => (x - xMean) ** 2));
+    const intercept = yMean - slope * xMean;
+
+    // Endpoints of the regression line
+    const xStart = d3.min(xVals);
+    const xEnd = d3.max(xVals);
+    const yStart = slope * xStart + intercept;
+    const yEnd = slope * xEnd + intercept;
+
+    // Draw the trendline
+    svg.append("line")
+      .attr("x1", x(xStart))
+      .attr("y1", y(yStart))
+      .attr("x2", x(xEnd))
+      .attr("y2", y(yEnd))
+      .attr("stroke", "black")
+      .attr("stroke-width", 1.5)
+      .attr("stroke-dasharray", "5,4")
+      .lower(); // Put behind dots
+  }
+
+  function initComplianceBoxPlot() {
+  const margin = { top: 20, right: 30, bottom: 50, left: 60 };
+  const width = 500 - margin.left - margin.right;
+  const height = 300 - margin.top - margin.bottom;
+
+  // Bins
+  const bins = [
+    { range: [0, 25], label: "0–25%" },
+    { range: [25, 50], label: "25–50%" },
+    { range: [50, 75], label: "50–75%" },
+    { range: [75, 100], label: "75–100%" },
+  ];
+
+  // Prepare SVG
+  const container = d3.select("#compliance-boxplot");
+  container.selectAll("svg").remove();
+
+  const svg = container.append("svg")
+    .attr("viewBox", `0 0 ${width + margin.left + margin.right} ${height + margin.top + margin.bottom}`)
+    .append("g")
+    .attr("transform", `translate(${margin.left},${margin.top})`);
+
+  // Tooltip
+  const tooltip = container.append("div")
+    .style("position", "absolute")
+    .style("background", "white")
+    .style("padding", "6px 10px")
+    .style("border", "1px solid #ccc")
+    .style("border-radius", "6px")
+    .style("font-size", "12px")
+    .style("pointer-events", "none")
+    .style("opacity", 0);
+
+  // Bin and preprocess
+  const binned = bins.map(bin => {
+    const members = compScatterplotData.filter(d =>
+      d.singleFamilyPercent >= bin.range[0] &&
+      d.singleFamilyPercent < bin.range[1]
+    );
+    members.sort((a, b) => a.compliantZoningRate - b.compliantZoningRate);
+    const values = members.map(d => d.compliantZoningRate / 100);
+    const q1 = d3.quantile(values, 0.25);
+    const q2 = d3.quantile(values, 0.5);
+    const q3 = d3.quantile(values, 0.75);
+    const iqr = q3 - q1;
+    const min = d3.min(values);
+    const max = d3.max(values);
+    const regionMode = d3.rollup(members, v => v.length, d => d.region);
+    const dominantRegion = [...regionMode.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? "Unknown";
+    return {
+      ...bin,
+      values, members, q1, q2, q3, iqr, min, max, region: dominantRegion
+    };
+  });
+
+  const x = d3.scaleBand()
+    .domain(binned.map(d => d.label))
+    .range([0, width])
+    .paddingInner(0.4)
+    .paddingOuter(0.2);
+
+  const y = d3.scaleLinear()
+    .domain([0.8, 1.0])
+    .range([height, 0]);
+
+  // Axes
+  svg.append("g")
+    .attr("transform", `translate(0,${height})`)
+    .call(d3.axisBottom(x));
+
+  svg.append("g")
+    .call(d3.axisLeft(y).tickFormat(d3.format(".0%")));
+
+  svg.append("text")
+    .attr("x", width / 2)
+    .attr("y", height + 40)
+    .attr("text-anchor", "middle")
+    .text("% Single-Family Housing (Binned)");
+
+  svg.append("text")
+    .attr("transform", "rotate(-90)")
+    .attr("x", -height / 2)
+    .attr("y", -45)
+    .attr("text-anchor", "middle")
+    .text("Zoning Compliance Rate");
+
+  // Boxes
+  svg.selectAll(".box")
+    .data(binned)
+    .enter()
+    .append("rect")
+    .attr("class", "box")
+    .attr("x", d => x(d.label))
+    .attr("y", d => y(d.q3))
+    .attr("width", x.bandwidth())
+    .attr("height", d => y(d.q1) - y(d.q3))
+    .attr("fill", "#a6bddb")
+    .attr("stroke", "black")
+    .on("mouseover", (event, d) => {
+      tooltip.transition().duration(200).style("opacity", 0.9);
+      tooltip.html(`
+        <strong>${d.label}</strong><br/>
+        Count: ${d.values.length}<br/>
+        Q1: ${(d.q1 * 100).toFixed(1)}%<br/>
+        Median: ${(d.q2 * 100).toFixed(1)}%<br/>
+        Q3: ${(d.q3 * 100).toFixed(1)}%
+      `)
+        .style("left", `${event.pageX + 10}px`)
+        .style("top", `${event.pageY - 28}px`);
+    })
+    .on("mousemove", (event) => {
+      tooltip.style("left", `${event.pageX + 10}px`)
+        .style("top", `${event.pageY - 28}px`);
+    })
+    .on("mouseout", () => {
+      tooltip.transition().duration(300).style("opacity", 0);
+    });
+
+  // Medians
+  svg.selectAll(".median-line")
+    .data(binned)
+    .enter()
+    .append("line")
+    .attr("class", "median-line")
+    .attr("x1", d => x(d.label))
+    .attr("x2", d => x(d.label) + x.bandwidth())
+    .attr("y1", d => y(d.q2))
+    .attr("y2", d => y(d.q2))
+    .attr("stroke", "black")
+    .attr("stroke-width", 2);
+
+  // Jittered individual points
+  const jitter = 0.2 * x.bandwidth();
+
+  svg.selectAll(".point")
+    .data(binned.flatMap(d => d.members.map(m => ({ ...m, bin: d.label }))))
+    .enter()
+    .append("circle")
+    .attr("cx", d => x(d.bin) + x.bandwidth() / 2 + (Math.random() - 0.5) * jitter)
+    .attr("cy", d => y(d.compliantZoningRate / 100))
+    .attr("r", 3)
+    .attr("fill", "#3690c0")
+    .attr("opacity", 0.6)
+    .attr("stroke", "#333")
+    .on("mouseover", (event, d) => {
+      tooltip.transition().duration(200).style("opacity", 0.9);
+      tooltip.html(`
+        <strong>${d.town || "Unknown"}</strong><br/>
+        % Single-Family: ${d.singleFamilyPercent.toFixed(1)}%<br/>
+        % Compliant Zoning: ${d.compliantZoningRate.toFixed(1)}%<br/>
+        Population: ${d.totalPopulation.toLocaleString()}<br/>
+      `)
+        .style("left", `${event.pageX + 10}px`)
+        .style("top", `${event.pageY - 28}px`);
+    })
+    .on("mousemove", (event) => {
+      tooltip.style("left", `${event.pageX + 10}px`)
+        .style("top", `${event.pageY - 28}px`);
+    })
+    .on("mouseout", () => {
+      tooltip.transition().duration(300).style("opacity", 0);
+    });
+}
+
 
   function onTabChange(tabName) {
     activeTab = tabName;
@@ -1554,6 +1855,8 @@
     await loadData();
     await initScatterplot();
     await initZoningMap();
+    // await initComplianceScatterplot();
+    await initComplianceBoxPlot();
     await initBarChart();
     await updateBarChart(selectedYear);
 
@@ -1902,8 +2205,21 @@
     <div style="display: flex; flex-wrap: wrap; gap: 2rem; align-items: stretch; min-height: 100vh;">
       <!-- LEFT: Text Content -->
       <div style="flex: 1; min-width: 300px; background-color: rgba(255, 255, 255, 0.9); padding: 2rem; display: flex; flex-direction: column; justify-content: space-between;">
-        <div class="section-header">Housing Access Across Communities</div>
-      </div>
+        <div>
+          <div class="section-header">Housing Access Across Communities</div>
+          
+          <p style="margin-top: 1rem; font-size: 0.95rem; line-height: 1.5;">
+            To understand <strong>how zoning reforms affect affordable housing in Greater Boston</strong>, we need to examine both <strong>who lives where</strong> and <strong>how local zoning laws shape the housing landscape</strong>.
+            The map on the right shows the <strong>demographic and income distribution</strong> of residents, helping renters and buyers earning <strong>60–100% of the Area Median Income (AMI)</strong> identify communities with similar profiles.
+            On the left, the boxplot connects this to zoning policy by showing how <strong>single-family zoning patterns</strong> relate to each municipality's <strong>compliance with state housing mandates</strong>.
+            We find that communities with <strong>higher shares of single-family housing</strong> often show <strong>less consistent compliance</strong>, pointing to how <strong>restrictive zoning may limit affordable housing opportunities</strong>.
+            Together, these tools highlight <strong>where zoning creates barriers</strong>—and <strong>where reform could open doors</strong> for more equitable housing access.
+          </p>
+        </div>
+      
+        <!-- 🔽 Bottom-aligned scatterplot -->
+        <div id="compliance-boxplot"></div>
+      </div>      
       <!-- RIGHT: Map -->
       <div style="flex: 2; min-width: 500px; padding: 3rem 6rem 2rem 2rem; display: flex; flex-direction: column; align-items: center;">
         <!-- Combined Row: Tabs (left) + Selector (right) -->
