@@ -17,6 +17,7 @@
   let mapcPopCsvData = new Map();
   let activeTab = 'income'; // default tab
   let usePercentage = true; // true = show %; false = show raw counts
+  let muniSummaryMap = new Map(); // for scatterplot
   let showBottom = false; // true = show bottom 10; false = show top 10
 
   // Precomputed cache
@@ -254,46 +255,108 @@
       };
     }).filter(d => d.avgIncome !== null && d.avgUnitPrice !== null);
 
+
+    console.log('Scatter Data', scatterData);
+
+    const muniSummaryData = await d3.csv('scatterplot/municipality_summary.csv');
+    muniSummaryMap = new Map();
+    muniSummaryData.forEach(d => {
+      muniSummaryMap.set(d.muni.trim().toLowerCase(), {
+        mean_lot_size_sqft: +d.mean_lot_size_sqft,
+        compliance_rate: +d.compliance_rate,
+        mean_far: +d.mean_far,
+        lot_25: +d["lot_25%"],
+        lot_50: +d["lot_50%"],
+        lot_75: +d["lot_75%"]
+      });
+    });
   }
 
   function onSearch(event) {
     const selected = event.target.value.trim();
-    selectedMuni = selected || null;
+    updateSelectedMuni(selected || null, false);
+  }
 
-    const circles = d3.select("#scatterplot svg g").selectAll("circle");
 
-    circles
-      .attr("r", d => (d.muni === selectedMuni ? 11 : 7))
-      .attr("stroke-width", d => (d.muni === selectedMuni ? 1.5 : 0.1))
-      .attr("opacity", d => (d.muni === selectedMuni ? 1 : 0.85));
+  function updateLotSizeChart(muniName) {
+    const svg = d3.select("#lot-size-chart");
+    if (svg.empty()) return;
 
-    if (selectedMuni) {
-      const match = scatterData.find(d => d.muni === selectedMuni);
+    const data = muniSummaryMap.get(muniName.trim().toLowerCase());
+    if (!data) return;
 
-      tooltip.transition().duration(200).style("opacity", 0.9);
-      tooltip.html(`
-        <strong>${match.muni}</strong><br/>
-        <b>Avg Income:</b> ${formatMillions(match.avgIncome)}<br/>
-        <b>Avg Unit Price:</b> ${formatMillions(match.avgUnitPrice)}<br/>
-        <b>Years to Pay Off:</b> ${match.yearsToPayoff.toFixed(1)}
-      `);
+    const lotSizeData = [
+      { label: "25th", value: data.lot_25 },
+      { label: "Median", value: data.lot_50 },
+      { label: "75th", value: data.lot_75 }
+    ];
 
-      const svgElement = document.querySelector("#scatterplot svg");
-      const pt = svgElement.createSVGPoint();
-      pt.x = x(match.avgIncome);
-      pt.y = y(match.avgUnitPrice);
-      const screenPoint = pt.matrixTransform(svgElement.getScreenCTM());
-      const scatterRect = svgElement.getBoundingClientRect();
+    svg.selectAll("*").remove();
 
-      tooltip
-        .style("left", (screenPoint.x - scatterRect.left + 80) + "px")
-        .style("top", (screenPoint.y - scatterRect.top + 30) + "px");
+    const margin = { top: 30, right: 20, bottom: 40, left: 50 };
+    const width = parseInt(svg.style("width")) - margin.left - margin.right;
+    const height = parseInt(svg.style("height")) - margin.top - margin.bottom;
 
-      // 🛠️ MOST IMPORTANT PART: move the selected circle to the front
-      circles.filter(d => d.muni === selectedMuni).raise();
-    } else {
-      tooltip.transition().duration(300).style("opacity", 0);
-    }
+    const g = svg.append("g")
+      .attr("transform", `translate(${margin.left},${margin.top})`);
+
+    const x = d3.scaleBand()
+      .domain(lotSizeData.map(d => d.label))
+      .range([0, width])
+      .padding(0.3);
+
+    const y = d3.scaleLinear()
+      .domain([0, d3.max(lotSizeData, d => d.value)])
+      .range([height, 0]);
+
+    // Axes
+    g.append("g")
+      .attr("transform", `translate(0,${height})`)
+      .call(d3.axisBottom(x))
+      .selectAll("text")
+      .style("font-size", "10px");
+
+    g.append("g")
+      .call(d3.axisLeft(y).ticks(3))
+      .selectAll("text")
+      .style("font-size", "10px");
+
+    // Bars
+    g.selectAll("rect")
+      .data(lotSizeData)
+      .enter()
+      .append("rect")
+      .attr("x", d => x(d.label))
+      .attr("y", d => y(d.value))
+      .attr("width", x.bandwidth())
+      .attr("height", d => height - y(d.value))
+      .attr("fill", "#a6b9a3");
+
+    // Chart title
+    svg.append("text")
+      .attr("x", parseInt(svg.style("width")) / 2)
+      .attr("y", 18)
+      .attr("text-anchor", "middle")
+      .style("font-size", "14px")
+      .style("font-weight", "bold")
+      .text("Lot Size Distribution");
+
+    // Y-axis label
+    svg.append("text")
+      .attr("text-anchor", "middle")
+      .attr("transform", `rotate(-90)`)
+      .attr("x", -parseInt(svg.style("height")) / 2)
+      .attr("y", 14)
+      .style("font-size", "10px")
+      .text("Lot Size (sqft)");
+
+    // X-axis label
+    svg.append("text")
+      .attr("x", parseInt(svg.style("width")) / 2)
+      .attr("y", parseInt(svg.style("height")) - 6)
+      .attr("text-anchor", "middle")
+      .style("font-size", "10px")
+      .text("Percentile");
   }
 
   async function initZoningMap() {
@@ -1655,7 +1718,9 @@
     // X Axis
     svg.append("g")
       .attr("transform", `translate(0,${height})`)
-      .call(d3.axisBottom(x).tickFormat(d3.format("$.2s")));
+      .call(d3.axisBottom(x).tickFormat(d3.format("$.2s")))
+      .selectAll("text")
+      .style("font-size", "12px");
 
     svg.append("text")
       .attr("x", width / 2)
@@ -1666,7 +1731,9 @@
 
     // Y Axis
     svg.append("g")
-      .call(d3.axisLeft(y).tickFormat(d => d >= 1000000 ? `$${d/1000000}M` : d3.format("$.2s")(d)));
+      .call(d3.axisLeft(y).tickFormat(d => d >= 1000000 ? `$${d/1000000}M` : d3.format("$.2s")(d)))
+      .selectAll("text")
+      .style("font-size", "12px");
 
     svg.append("text")
       .attr("transform", "rotate(-90)")
@@ -1688,12 +1755,19 @@
       // Reset all circles appearance
       const circles = d3.select("#scatterplot svg g").selectAll("circle");
       circles
-        .attr("r", 7)
+        .attr("r", 6)
         .attr("stroke-width", 0.1)
         .attr("opacity", 0.85);
 
       // Hide tooltip
       tooltip.transition().duration(300).style("opacity", 0);
+
+      // Clear left box
+      const infoBox = document.getElementById("municipality-info");
+      if (infoBox) {
+        infoBox.innerHTML = `<em>No municipality selected.</em>`;
+      }
+
 
       // Reset dropdown to placeholder
       const selectElement = document.getElementById("searchSelect");
@@ -1709,7 +1783,7 @@
       .append("circle")
       .attr("cx", d => x(d.avgIncome))
       .attr("cy", d => y(d.avgUnitPrice))
-      .attr("r", 7) // 🌟 Bigger dots
+      .attr("r", 6) // 🌟 Bigger dots
       .attr("fill", d => (d.yearsToPayoff !== null ? color(Math.min(d.yearsToPayoff, 50)) : "#ccc")) 
       .attr("stroke", "black")        // 👈 add this line
       .attr("stroke-width", 0.1)      // 👈 very thin outline
@@ -1737,7 +1811,7 @@
         <strong>${d.muni}</strong><br/>
         <b>Avg Income:</b> ${formatMillions(d.avgIncome)}<br/>
         <b>Avg Unit Price:</b> ${formatMillions(d.avgUnitPrice)}<br/>
-        <b>Years to Pay Off:</b> ${d.yearsToPayoff.toFixed(1)}
+        <b>Years to Pay Off*:</b> ${d.yearsToPayoff.toFixed(1)}
       `)
         .style("left", (event.clientX - scatterplotRect.left + 10) + "px")
         .style("top", (event.clientY - scatterplotRect.top - 20) + "px");
@@ -1750,6 +1824,18 @@
     })
     .on("mouseout", () => {
       tooltip.transition().duration(300).style("opacity", 0);
+    });
+
+    // Click to select a municipality
+    svg.selectAll("circle")
+    .on("click", (event, d) => {
+      updateSelectedMuni(d.muni, true);
+
+      // Sync dropdown
+      const selectElement = document.getElementById("searchSelect");
+      if (selectElement) {
+        selectElement.value = d.muni;
+      }
     });
 
 
@@ -1765,14 +1851,14 @@
 
     // Add a group (g) for the red dashed line legend
     const lineLegend = svg.append("g")
-      .attr("transform", `translate(${width - 300}, 20)`); // move to top right corner nicely
+      .attr("transform", `translate(${width - 300}, 50)`); // move to top right corner nicely
 
     // Draw a red dashed sample line inside
     lineLegend.append("line")
       .attr("x1", 0)
-      .attr("y1", 10)
+      .attr("y1", 14)
       .attr("x2", 40)
-      .attr("y2", 10)
+      .attr("y2", 14)
       .attr("stroke", "red")
       .attr("stroke-width", 2)
       .attr("stroke-dasharray", "5,5");
@@ -1781,7 +1867,7 @@
     lineLegend.append("text")
       .attr("x", 50)
       .attr("y", 15)
-      .text("Units purchasable with 10 years income")
+      .text("Units purchasable with 10 years income*")
       .style("font-size", "12px")
       .style("alignment-baseline", "middle")
       .attr("fill", "#555");
@@ -1839,7 +1925,55 @@
       .attr("y", -20)
       .attr("text-anchor", "start")
       .style("font-size", "12px")
-      .text("Years to Pay Off");
+      .text("Years to Pay Off*");
+  }
+
+  function updateSelectedMuni(muniName, showTooltip = false) {
+    selectedMuni = muniName;
+
+    const circles = d3.select("#scatterplot svg g").selectAll("circle");
+    circles
+      .attr("r", d => (d.muni === selectedMuni ? 10 : 6))
+      .attr("stroke-width", d => (d.muni === selectedMuni ? 1.5 : 0.1))
+      .attr("opacity", d => (d.muni === selectedMuni ? 1 : 0.85));
+
+    const match = scatterData.find(d => d.muni === selectedMuni);
+    if (!match) return;
+
+    const infoBox = document.getElementById("municipality-info");
+    if (infoBox) {
+      infoBox.innerHTML = `
+        <strong>${match.muni}</strong><br/>
+        <b>Avg Income:</b> ${formatMillions(match.avgIncome)}<br/>
+        <b>Avg Unit Price:</b> ${formatMillions(match.avgUnitPrice)}<br/>
+        <b>Years to Pay Off*:</b> ${match.yearsToPayoff.toFixed(1)}<br/>
+        <br/>
+        <svg id="lot-size-chart" width="350" height="250"></svg>
+      `;
+    }
+
+    updateLotSizeChart(selectedMuni);
+
+    if (showTooltip) {
+      const svgElement = document.querySelector("#scatterplot svg");
+      const pt = svgElement.createSVGPoint();
+      pt.x = x(match.avgIncome);
+      pt.y = y(match.avgUnitPrice);
+      const screenPoint = pt.matrixTransform(svgElement.getScreenCTM());
+      const scatterRect = svgElement.getBoundingClientRect();
+
+      tooltip
+        .style("left", (screenPoint.x - scatterRect.left + 80) + "px")
+        .style("top", (screenPoint.y - scatterRect.top + 30) + "px")
+        .style("opacity", 0.9);
+    } else {
+      tooltip.transition().duration(300).style("opacity", 0); // hide it if not hovering
+    }
+
+    circles.filter(d => d.muni === selectedMuni).raise();
+
+    const graphBox = document.getElementById("municipality-graphs");
+    if (graphBox) graphBox.style.display = "block";
   }
 
   onMount(async () => {
@@ -2259,26 +2393,60 @@
       <!-- LEFT: Text Content -->
       <div style="flex: 1; min-width: 300px; background-color: rgba(255, 255, 255, 0.9); padding: 2rem; display: flex; flex-direction: column; justify-content: space-between;">
         <div class="section-header">Affordability Explorer</div>
-      </div>
+        <!-- Top Box: Key Takeaway -->
+        <div style="flex: 0 0 180px; border: 1px solid #ccc; border-radius: 8px; padding: 1rem; background: #fff;">
+          <h4>Key Takeaway</h4>
+          <p>Summary of the scatterplot...</p>
+          <ul>
+            <li>Income vs Price</li>
+            <li>Affordability assumptions</li>
+          </ul>
+        </div>
+
+        <!-- Bottom Box: Municipality Info -->
+        <div style="flex: 1; border: 1px solid #ccc; border-radius: 8px; padding: 1rem; background: #fff; overflow-y: auto;">
+          <h4>Selected Municipality</h4>
+          <div id="municipality-info">
+            <div id="municipality-stats">
+              <em>No municipality selected.</em>
+            </div>
+          
+            <!-- Graphs go here -->
+            <div id="municipality-graphs" style="margin-top: 1rem; display: none;">
+              <div style="display: flex; flex-direction: column; gap: 1.5rem; align-items: center;">
+                <div style="min-width: 150px; width: 100%; max-width: 300px;">
+                  <h6 style="text-align: center;">Lot Size (sqft)</h6>
+                  <svg id="lot-size-chart" width="100%" height="120"></svg>
+                </div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+            </div>
 
       <!-- RIGHT: Scatterplot -->
       <div style="flex: 2; min-width: 500px; padding: 2rem 6rem 2rem 2rem;">
-        <div class="scatterplot-title">Average Household Income vs. Unit Purchase Price</div>
-        <div class="scatterplot-subtitle">Hover over each dot to see which municipality it represents.</div>
-    
-        <div style="margin-bottom: 20px; text-align: center;">
-          <select id="searchSelect" class="form-select" style="width: 300px;" on:change={onSearch}>
-            <option value="">Select Municipality...</option>
-            {#each [...scatterData].sort((a, b) => a.muni.localeCompare(b.muni)) as d}
-              <option value={d.muni}>{d.muni}</option>
-            {/each}
-          </select>                 
-        </div>
+        <div style="background-color: white; border-radius: 12px; padding: 2rem; box-shadow: 0 2px 8px rgba(0,0,0,0.05);">
+          <div style="margin-bottom: 20px; text-align: center;">
+            <select id="searchSelect" class="form-select" style="width: 300px;" on:change={onSearch}>
+              <option value="">Select Municipality...</option>
+              {#each [...scatterData].sort((a, b) => a.muni.localeCompare(b.muni)) as d}
+                <option value={d.muni}>{d.muni}</option>
+              {/each}
+            </select>                 
+          </div>
 
-        <div style="padding: 1rem; background-color: white; border-radius: 12px;">
-          <div id="scatterplot" style="position: relative;"></div>
+          <div style="padding: 1rem;">
+            <div id="scatterplot" style="position: relative; width: 100%; height: 550px;"></div>
+          </div>
+
+          <div style="font-size: 0.75rem; color: #555; margin-top: 1rem; text-align: left;">
+            * We assume a 9% down payment for first-time home buyers (<a href="https://www.nerdwallet.com/article/mortgages/average-down-payment-on-a-house" target="_blank" style="color: #555; text-decoration: underline;">source</a>) and 28% of salary allocated to mortgage payments (<a href="https://www.chase.com/personal/mortgage/education/financing-a-home/what-percentage-income-towards-mortgage" target="_blank" style="color: #555; text-decoration: underline;">source</a>).
+          </div>
         </div>
       </div>
+
   </section>      
 
   <section id="timeline" class="alt-bg">
