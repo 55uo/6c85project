@@ -92,6 +92,7 @@
     const singleFamilyCsv = await d3.csv(import.meta.env.BASE_URL + 'single_family_zoning/housing_sf_other_w_census.csv');
     // const singleFamilyCsv = await d3.csv('single_family_zoning/housing_sf_other_w_census.csv');
     // singleFamilyGeo = await fetch(import.meta.env.BASE_URL + 'single_family_zoning/mapc_region_towns_w_population.geojson').then(res => res.json());
+    singleFamilyGeo = await fetch(import.meta.env.BASE_URL + 'single_family_zoning/mapc_region_towns_w_population-1.json').then(res => res.json());
     // singleFamilyGeo = await fetch('single_family_zoning/mapc_region_towns_w_population.geojson').then(res => res.json());
     const unitPriceCsv = await d3.csv(import.meta.env.BASE_URL + 'scatterplot/average_unit_price_by_municipality.csv');
     // const unitPriceCsv = await d3.csv('scatterplot/average_unit_price_by_municipality.csv');
