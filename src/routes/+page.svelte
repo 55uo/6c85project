@@ -2,6 +2,7 @@
   import { onMount } from "svelte";
   import mapboxgl from "mapbox-gl";
   import * as d3 from "d3";
+  import { parse } from "svelte/compiler";
 
   const MAPBOX_TOKEN = 'pk.eyJ1Ijoic3N1byIsImEiOiJjbTk5Z2NnNWIwNDh5MnJwdjFwZGhnZmU2In0.DlLRt3C3qdBGprZR4SvRVQ';
 
@@ -12,9 +13,12 @@
   let zoningMap;
   let singleFamilyGeo;
   let singleFamilyCsvData = new Map();
+  let complianceCsvData = new Map();
+  let mapcPopCsvData = new Map();
   let activeTab = 'income'; // default tab
   let usePercentage = true; // true = show %; false = show raw counts
   let muniSummaryMap = new Map(); // for scatterplot
+  let showBottom = false; // true = show bottom 10; false = show top 10
 
   // Precomputed cache
   let incomeCache = new Map();
@@ -42,14 +46,14 @@
   // Define demographic groups
   let selectedDemographic = 'Non-Hispanic White'; // default selection for demographics
   const demographicColumns = {
-    'Non-Hispanic White': 'nhwhi',
-    'Non-Hispanic Black': 'nhaa',
-    'Non-Hispanic American Indian': 'nhna',
-    'Non-Hispanic Asian': 'nhas',
-    'Non-Hispanic Pacific Islander': 'nhpi',
-    'Non-Hispanic Other Race': 'nhoth',
-    'Non-Hispanic Multi-Race': 'nhmlt',
-    'Hispanic or Latino': 'lat'
+    'Non-Hispanic White': ['nhwhi', 'nhwhi_p'],
+    'Non-Hispanic Black': ['nhaa', 'nhaa_p'],
+    'Non-Hispanic American Indian': ['nhna', 'nhna_p'],
+    'Non-Hispanic Asian': ['nhas', 'nhas_p'],
+    'Non-Hispanic Pacific Islander': ['nhpi', 'nhpi_p'],
+    'Non-Hispanic Other Race': ['nhoth', 'nhoth_p'],
+    'Non-Hispanic Multi-Race': ['nhmlt', 'nhmlt_p'],
+    'Hispanic or Latino': ['latino', 'lat_p'],
   };
 
   // Define family size groups
@@ -70,30 +74,49 @@
     "Nonfamily Households - 7+ people": "nfhh7o"
   };
 
+  const colorScale = d3.scaleOrdinal()
+    .domain(Object.keys(demographicColumns)) // or income ranges / family size
+    .range(d3.schemeTableau10);
+
   // Housing timeline
-  let timelineDataMap = new Map();
-  let timelineMaxUnits = 0;
-  let barSvg, barX, barY;
-  let selectedYear = 2025; // default year for timeline
-  let searchQuery = ''; // for filtering municipalities
+  let selectedYear = 2020; // default year for timeline
+  let densityCsvData = new Map();
+  let stackedBarData = [];
+
+  // compliance scatterplot
+  let compScatterplotData = [];
 
   async function loadData() {
     // Load CSV and GeoJSON data
     // const singleFamilyCsv = await d3.csv(import.meta.env.BASE_URL + 'single_family_zoning/housing_sf_other_w_census.csv');
     const singleFamilyCsv = await d3.csv('single_family_zoning/housing_sf_other_w_census.csv');
-    // singleFamilyGeo = await fetch(import.meta.env.BASE_URL + 'single_family_zoning/housing_sf_other_w_census_reprojected.json').then(res => res.json());
-    singleFamilyGeo = await fetch('single_family_zoning/housing_sf_other_w_census_reprojected.json').then(res => res.json());
+    singleFamilyGeo = await fetch('single_family_zoning/mapc_region_towns_w_population.geojson').then(res => res.json());
     // const unitPriceCsv = await d3.csv(import.meta.env.BASE_URL + 'scatterplot/average_unit_price_by_municipality.csv');
     const unitPriceCsv = await d3.csv('scatterplot/average_unit_price_by_municipality.csv');
-    // const yearMuniAcc = await fetch(import.meta.env.BASE_URL + 'housing_timeline/year_municipality_accumulation_filtered.json').then(res => res.json());
-    const yearMuniAcc = await fetch('housing_timeline/year_municipality_accumulation_filtered.json').then(res => res.json());
+    const complianceCsv = await d3.csv('single_family_zoning/compliance_muni_census.csv');
+    const mapcPopCsv = await d3.csv('housing_timeline/mapc_region_towns_w_population.csv');
+    const densityCsv = await d3.csv('housing_timeline/housing_units_cumulative_by_type.csv');
 
     // Build CSV map
     singleFamilyCsvData = new Map();
     singleFamilyCsv.forEach(row => {
-      singleFamilyCsvData.set(parseInt(row.fid), row);
+      singleFamilyCsvData.set(parseInt(row.muni_id), row);
     });
-
+    complianceCsvData = new Map();
+    complianceCsv.forEach(row => {
+      complianceCsvData.set(parseInt(row.muni_id), row);
+    });
+    mapcPopCsvData = new Map();
+    mapcPopCsv.forEach(row => {
+      mapcPopCsvData.set(parseInt(row.town_id), row);
+    });
+    densityCsv.forEach(row => {
+      if (!densityCsvData.has(row.Municipality)) {
+        densityCsvData.set(row.Municipality, []);
+      }
+      densityCsvData.get(row.Municipality).push(row);
+    });
+    
     // Build unit price map
     const unitPriceMap = new Map();
     unitPriceCsv.forEach(d => {
@@ -101,13 +124,11 @@
         unitPriceMap.set(d.muni.trim().toLowerCase(), parseFloat(d.average_unit_price));
       }
     });
-    // console.log("Unit Price Map: ", unitPriceMap);
 
     // Build precomputed cache
     singleFamilyCsv.forEach(row => {
-      const fid = row.fid;
+      const fid = row.muni_id;
       const totalHouseholds = parseFloat(row.hh || 0);
-      const totalPopulation = parseFloat(row.pop || 0);
 
       // Income level percentages
       if (totalHouseholds > 0) {
@@ -122,13 +143,18 @@
       } else {
         incomeCache.set(parseInt(fid), [0, 0, 0, 0, 0, 0]);
       }
+    });
+
+    // Build demographic cache
+    complianceCsv.forEach(row => {
+      const fid = row.muni_id;
+      const totalPopulation = parseFloat(row.pop || 0);
 
       // Demographic group percentages
       if (totalPopulation > 0) {
         const demoPercentages = {};
         for (const [label, columnName] of Object.entries(demographicColumns)) {
-          const count = parseFloat(row[columnName] || 0);
-          demoPercentages[label] = count / totalPopulation; // fraction
+          demoPercentages[label] = columnName[1];
         }
         demoCache.set(fid, demoPercentages);
       } else {
@@ -140,29 +166,24 @@
       }
     });
 
-    console.log("Income Cache: ", incomeCache);
-    console.log("Demographics Cache: ", demoCache);
+    // Compliance data
+    compScatterplotData = complianceCsv.map(row => {
+      const fid = row.muni_id;
+      const town = row.municipal;
+      const totalPopulation = parseFloat(row.pop || 0);
+      const singleFamilyPercent = parseFloat(singleFamilyCsvData.get(parseInt(fid))?.["%_single_family"] || 0);
+      const compliantZoningRate = parseFloat(row["%_compliant_zoning"] || 0);
+      const house20 = mapcPopCsvData.get(parseInt(fid))?.housing20 || 0;
 
-    // Build timeline cache
-    timelineDataMap = new Map();
-    Object.entries(yearMuniAcc).forEach(([year, municipalities]) => {
-      Object.entries(municipalities).forEach(([muni, totalUnits]) => {
-        if (!timelineDataMap.has(muni)) {
-          timelineDataMap.set(muni, []);
-        }
-        timelineDataMap.get(muni).push({
-          year: parseInt(year),
-          totalUnits: parseFloat(totalUnits || 0)
-        });
-      });
+      return {
+        fid,
+        town,
+        totalPopulation,
+        compliantZoningRate,
+        house20,
+        singleFamilyPercent,
+      };
     });
-
-    // After filling timelineDataMap
-    timelineMaxUnits = d3.max(
-      Array.from(timelineDataMap.entries()).map(([muni, entries]) => 
-        entries.reduce((sum, entry) => sum + entry.totalUnits, 0)
-      )
-    );
 
     const incomeMidpoints = {
       incu10: 5000,
@@ -233,6 +254,7 @@
         avgUnitPrice: unitPrice,
       };
     }).filter(d => d.avgIncome !== null && d.avgUnitPrice !== null);
+
 
     console.log('Scatter Data', scatterData);
 
@@ -354,187 +376,475 @@
     });
   }
 
-  function initBarChart() {
-    const margin = { top: 40, right: 30, bottom: 70, left: 80 };
-    const width = 1000 - margin.left - margin.right;
-    const height = 500 - margin.top - margin.bottom;
+  function initDensityBarChart() {
+    const margin = { top: 20, right: 20, bottom: 80, left: 60 };
 
-    barSvg = d3.select("#timeline-map")
-      .append("svg")
+    const container = d3.select("#density-bar-chart");
+    container.selectAll("svg").remove(); // Clear old chart if any
+
+    // ✅ Must come after container is defined
+    const containerWidth = container.node().clientWidth;
+    const containerHeight = container.node().clientHeight;
+
+    const width = containerWidth - margin.left - margin.right;
+    const height = containerHeight - margin.top - margin.bottom;
+
+    const svg = container.append("svg")
       .attr("viewBox", `0 0 ${width + margin.left + margin.right} ${height + margin.top + margin.bottom}`)
       .attr("preserveAspectRatio", "xMidYMid meet")
       .append("g")
-      .attr("width", width + margin.left + margin.right)
-      .attr("height", height + margin.top + margin.bottom)
       .attr("transform", `translate(${margin.left},${margin.top})`);
 
-    barX = d3.scaleBand()
-      .range([0, width])
-      .padding(0.2);
+    // ✅ Add white background behind chart
+    svg.append("rect")
+      .attr("width", width + margin.left + margin.right)
+      .attr("height", height + margin.top + margin.bottom)
+      .attr("x", -margin.left)
+      .attr("y", -margin.top)
+      .attr("fill", "white");
+    
+    // ✅ Create tooltip div only once, attached to <body>
+    const tooltip = d3.select("body")
+      .append("div")
+      .attr("class", "tooltip")
+      .style("position", "absolute")
+      .style("background", "white")
+      .style("padding", "6px 10px")
+      .style("border", "1px solid #ccc")
+      .style("border-radius", "6px")
+      .style("pointer-events", "none")
+      .style("font-size", "12px")
+      .style("opacity", 0);
 
-    barY = d3.scaleLinear()
-      .domain([0, timelineMaxUnits]) // ✅ fix the domain once
-      .range([height, 0]);
+    // ✅ Store globally for use in updateDensityBarChart
+    window.densityTooltip = tooltip;
 
-    barSvg.append("g")
-      .attr("class", "x-axis")
-      .attr("transform", `translate(0,${height})`);
+    // Global
+    window.densityBarSvg = svg;
+    window.densityBarX = d3.scaleBand().range([0, width]).padding(0.2);
+    window.densityBarY = d3.scaleLinear().range([height, 0]);
+    window.densityColor = d3.scaleOrdinal()
+      .domain(["Single-Family", "Multi-Family", "Condo", "Other", "Mobile Home"])
+      .range(["#cab2d6", "#fb9a99", "#a6cee3", "#fdbf6f", "#b2df8a"]);
+    
+    // Axes
+    svg.append("g").attr("class", "x-axis").attr("transform", `translate(0,${height})`);
+    svg.append("g").attr("class", "y-axis");
 
-    barSvg.append("g")
-      .attr("class", "y-axis");
-
-    // X-axis label
-    barSvg.append("text")
+    // Axis labels
+    svg.append("text")
+      .attr("x", width / 2)
+      .attr("y", height + 60)
       .attr("text-anchor", "middle")
-      .attr("x", (1000 - 80 - 30) / 2)  // width minus margins divided by 2
-      .attr("y", 500 - 40 + 50)          // height minus top margin plus some padding
-      .text("Municipality")
-      .style("font-size", "14px");
+      .style("font-size", "14px")
+      .style("fill", "#5a4e4d")
+      .text("Municipality");
 
-    // Y-axis label
-    barSvg.append("text")
-      .attr("text-anchor", "middle")
+    svg.append("text")
       .attr("transform", "rotate(-90)")
-      .attr("x", -(500 - 40 - 70) / 2)   // height minus margins divided by 2
-      .attr("y", -60)                    // place it to the left of y-axis
-      .text("Total Units Built (up to selected year)")
-      .style("font-size", "14px");
+      .attr("y", -45)
+      .attr("x", -height / 2)
+      .attr("text-anchor", "middle")
+      .style("font-size", "14px")
+      .style("fill", "#5a4e4d")
+      .text("Housing Density (units per 10,000 sq mi)");
   }
 
-  function updateBarChart(selectedYear) {
 
-    barSvg.selectAll(".muni-group").remove(); 
+  function updateDensityBarChart(selectedYear) {
+    stackedBarData = [];
+    densityCsvData.forEach((rows, muni) => {
+      // Get the row matching the selected year) 
+      const yearRow = rows.find(r => r.Year === String(selectedYear));
+      if (!yearRow) return;
 
-    const data = Array.from(timelineDataMap.entries())
-      .map(([muni, entries]) => {
-        return {
-          muni, // muni is already the municipality name
-          totalUnits: entries
-            .filter(entry => entry.year <= selectedYear)
-            .reduce((sum, entry) => sum + entry.totalUnits, 0)
-        };
+      const totalUnits =
+        +yearRow["Single-Family"] +
+        +yearRow["Multi-Family"] +
+        +yearRow["Condo"] +
+        +yearRow["Other"] +
+        +yearRow["Mobile Home"];
+
+      const landAreaEntry = mapcPopCsvData.get(parseInt(yearRow["TOWN_ID"], 10))['aland20'];
+      if (!landAreaEntry) return; // skip if no land area entry
+
+      const density = totalUnits / +landAreaEntry;
+
+      stackedBarData.push({
+        muni,
+        density,
+        types: {
+          "Single-Family": +yearRow["Single-Family"],
+          "Multi-Family": +yearRow["Multi-Family"],
+          "Condo": +yearRow["Condo"],
+          "Other": +yearRow["Other"],
+          "Mobile Home": +yearRow["Mobile Home"],
+        },
+        year: +yearRow["Year"],
+        Area: +landAreaEntry,
+      });
+    });
+
+    showBottom = document.getElementById("densityRankSwitch")?.checked;
+    const categories = ["Single-Family", "Multi-Family", "Condo", "Other", "Mobile Home"];
+
+    const data = stackedBarData.filter(d => d.year === selectedYear);
+
+    const stacked = data.map(d => {
+      const entry = { Municipality: d.muni };
+      let total = 0;
+      categories.forEach(cat => {
+        entry[cat] = d.Area > 0 ? (d.types[cat] / d.Area) * 10000 : 0;
+        total += entry[cat];
+      });
+      entry.totalDensity = total;
+      return entry;
+    });
+
+    // 🔁 Top or Bottom 10 by totalDensity
+    const sorted = stacked
+      .filter(d => isFinite(d.totalDensity))
+      .sort((a, b) => showBottom ? a.totalDensity - b.totalDensity : b.totalDensity - a.totalDensity)
+      .slice(0, 10);
+
+    // Stack format
+    const stackedSeries = d3.stack().keys(categories.slice().reverse())(sorted);
+
+    densityBarX.domain(sorted.map(d => d.Municipality));
+    densityBarY.domain([0, d3.max(sorted, d => d.totalDensity) * 1.1]);
+
+    // Axes
+    densityBarSvg.select(".x-axis")
+      .transition()
+      .duration(400)
+      .call(d3.axisBottom(densityBarX))
+      .selectAll("text")
+      .attr("transform", "rotate(-40)")
+      .style("text-anchor", "end")
+      .style("font-size", "11px");
+
+    densityBarSvg.select(".y-axis")
+      .transition()
+      .duration(400)
+      .call(d3.axisLeft(densityBarY).ticks(6));
+
+    // Clear old bars
+    densityBarSvg.selectAll(".bar-group").remove();
+
+    const tooltip = window.densityTooltip;
+
+    // Draw new bars
+    const groups = densityBarSvg.selectAll(".bar-group")
+      .data(stackedSeries)
+      .enter()
+      .append("g")
+      .attr("class", "bar-group")
+      .attr("fill", d => densityColor(d.key));
+
+    groups.selectAll("rect")
+      .data(d => d)
+      .enter()
+      .append("rect")
+      .attr("x", d => densityBarX(d.data.Municipality))
+      .attr("y", d => densityBarY(d[1]))
+      .attr("height", d => Math.max(0, densityBarY(d[0]) - densityBarY(d[1])))
+      .attr("width", densityBarX.bandwidth())
+      .on("mouseover", function(event, d) {
+        const category = d3.select(this.parentNode).datum().key;
+        const value = d.data[category];
+        tooltip.transition().duration(100).style("opacity", 0.95);
+        tooltip
+          .html(
+            `<b>${d.data.Municipality}</b><br>` +
+            `Category: <b>${category}</b><br>` +
+            `Density: ${value.toFixed(1)} units / 10,000 sq mi<br>` +
+            `Total: ${d.data.totalDensity.toFixed(1)}`
+          )
+          .style("left", (event.pageX + 10) + "px")
+          .style("top", (event.pageY - 28) + "px");
       })
-      .filter(d => d && d.totalUnits > 0);
+      .on("mouseout", () => tooltip.transition().duration(200).style("opacity", 0));
+  }
 
-    // console.log("Bar Chart Data:", data);
+  function initComplianceScatterplot() {
+    const margin = { top: 20, right: 20, bottom: 50, left: 60 };
+    const width = 400 - margin.left - margin.right;
+    const height = 300 - margin.top - margin.bottom;
 
-    // Update X and Y domain
-    barX.domain(data.map(d => d.muni));
+    const filteredData = compScatterplotData.filter(d => d.singleFamilyPercent > 0.15);
 
-    // 🧱 Define how thick each "brick" is vertically
-    const brickHeightUnits = 200000; // 5000 housing units per brick (you can adjust)
-    const maxBricks = d3.max(data, d => Math.ceil(d.totalUnits / brickHeightUnits));
+    const container = d3.select("#compliance-scatterplot");
+    container.selectAll("svg").remove();
 
-  // barY.domain([0, brickHeightUnits * maxBricks]);
+    const svg = container.append("svg")
+      .attr("viewBox", `0 0 ${width + margin.left + margin.right} ${height + margin.top + margin.bottom}`)
+      .append("g")
+      .attr("transform", `translate(${margin.left},${margin.top})`);
 
-  barSvg.select(".x-axis")
-    .transition()
-    .duration(500)
-    .call(d3.axisBottom(barX))
-    .selectAll("text")
-    .attr("transform", "rotate(-45)")
-    .style("text-anchor", "end")
-    .style("font-size", "10px");
+    const xMin = d3.min(filteredData, d => d.singleFamilyPercent) - 5;
+    const xMax = d3.max(filteredData, d => d.singleFamilyPercent) + 5;
+    const yMin = d3.min(filteredData, d => d.compliantZoningRate / 100) - 0.05;
+    const yMax = d3.max(filteredData, d => d.compliantZoningRate / 100) + 0.05;
 
-  barSvg.select(".y-axis")
-    .transition()
-    .duration(500)
-    .call(d3.axisLeft(barY));
+    const x = d3.scaleLinear().domain([Math.max(0, xMin), Math.min(100, xMax)]).range([0, width]);
+    const y = d3.scaleLinear().domain([Math.max(0, yMin), Math.min(1, yMax)]).range([height, 0]);
+    const r = d3.scaleSqrt()
+      .domain([0, d3.max(filteredData, d => d.totalPopulation)])
+      .range([2, 12]);
+    const color = d3.scaleOrdinal()
+      .domain(["Urban Core", "Suburb", "Rural"])
+      .range(["#fdbb84", "#fc4e2a", "#9932cc"]);
 
-  // const bars = barSvg.selectAll(".bar")
-  //   .data(data, d => d.muni);
+    const tooltip = container.append("div")
+      .style("position", "absolute")
+      .style("background", "white")
+      .style("padding", "6px 10px")
+      .style("border", "1px solid #ccc")
+      .style("border-radius", "6px")
+      .style("font-size", "12px")
+      .style("pointer-events", "none")
+      .style("opacity", 0);
 
-  // bars.enter()
-  //   .append("rect")
-  //   .attr("class", "bar")
-  //   .attr("x", d => barX(d.muni))
-  //   .attr("width", barX.bandwidth())
-  //   .attr("y", barY(0)) // Start from 0 for animation
-  //   .attr("height", 0)
-  //   .attr("fill", "#69b3a2")
-  //   .transition()
-  //   .duration(500)
-  //   .attr("y", d => barY(d.totalUnits))
-  //   .attr("height", d => barY(0) - barY(d.totalUnits));
+    svg.append("g")
+      .attr("transform", `translate(0,${height})`)
+      .call(d3.axisBottom(x).tickFormat(d => `${d.toFixed(0)}%`));
 
-  // bars.transition()
-  //   .duration(500)
-  //   .attr("x", d => barX(d.muni))
-  //   .attr("width", barX.bandwidth())
-  //   .attr("y", d => barY(d.totalUnits))
-  //   .attr("height", d => barY(0) - barY(d.totalUnits))
-  //   .attr("fill", "#69b3a2");
+    svg.append("g")
+      .call(d3.axisLeft(y).tickFormat(d3.format(".0%")));
 
-  // bars.exit().remove();
-  const muniGroups = barSvg.selectAll(".muni-group")
-    .data(data, d => d.muni);
+    svg.append("text")
+      .attr("x", width / 2)
+      .attr("y", height + 40)
+      .attr("text-anchor", "middle")
+      .text("% Single-Family Units");
 
-  const muniGroupsEnter = muniGroups.enter()
-    .append("g")
-    .attr("class", "muni-group")
-    .attr("transform", d => `translate(${barX(d.muni)},0)`);
+    svg.append("text")
+      .attr("transform", "rotate(-90)")
+      .attr("x", -height / 2)
+      .attr("y", -45)
+      .attr("text-anchor", "middle")
+      .text("Zoning Compliance Rate");
 
-  // Remove old
-  muniGroups.exit().remove();
+    svg.selectAll("circle")
+      .data(filteredData)
+      .enter()
+      .append("circle")
+      .attr("cx", d => x(d.singleFamilyPercent))
+      .attr("cy", d => y(d.compliantZoningRate / 100))
+      .attr("r", d => r(d.totalPopulation))
+      .attr("fill", d => color(d.region))
+      .attr("opacity", 0.75)
+      .attr("stroke", "#333")
+      .on("mouseover", (event, d) => {
+        tooltip.transition().duration(200).style("opacity", 0.9);
+        tooltip.html(`
+          <strong>${d.town || "Unknown"}</strong><br/>
+          % Single-Family: ${d.singleFamilyPercent.toFixed(1)}%<br/>
+          % Compliant Zoning: ${d.compliantZoningRate.toFixed(1)}%<br/>
+          Population: ${d.totalPopulation.toLocaleString()}
+        `)
+          .style("left", (event.pageX + 10) + "px")
+          .style("top", (event.pageY - 28) + "px");
+      })
+      .on("mousemove", (event) => {
+        tooltip.style("left", (event.pageX + 10) + "px")
+          .style("top", (event.pageY - 28) + "px");
+      })
+      .on("mouseout", () => {
+        tooltip.transition().duration(300).style("opacity", 0);
+      });
 
-  muniGroupsEnter.each(function(d) {
-  const group = d3.select(this);
-  const numBricks = Math.floor(d.totalUnits / brickHeightUnits);
+    // === Linear regression (least squares) ===
+    const xVals = filteredData.map(d => d.singleFamilyPercent);
+    const yVals = filteredData.map(d => d.compliantZoningRate / 100);
+    const n = xVals.length;
+    const xMean = d3.mean(xVals);
+    const yMean = d3.mean(yVals);
+    const slope = d3.sum(xVals.map((x, i) => (x - xMean) * (yVals[i] - yMean))) /
+                  d3.sum(xVals.map(x => (x - xMean) ** 2));
+    const intercept = yMean - slope * xMean;
 
-//   group.selectAll(".brick")
-//     .data(d3.range(numBricks)) // Create an array [0,1,2,...,numBricks-1]
-//     .enter()
-//     .append("rect")
-//     .attr("class", "brick")
-//     .attr("x", 0)
-//     .attr("width", barX.bandwidth())
-//     .attr("y", barY(0)) // Start at bottom
-//     .attr("height", 0) // Start collapsed
-//     .attr("fill", "#69b3a2")
-//     .transition()
-//     .duration(800)
-//     .delay((_, i) => i * 30) // slight delay per brick for rising animation
-//     .attr("y", (i) => barY((i + 1) * brickHeightUnits))
-//     .attr("height", (_, i) => barY(i * brickHeightUnits) - barY((i + 1) * brickHeightUnits));
-// });
-  //   const brickHeight = (barY(0) - barY(brickHeightUnits)); 
-  //   // How many pixels tall 1 brick should be
+    // Endpoints of the regression line
+    const xStart = d3.min(xVals);
+    const xEnd = d3.max(xVals);
+    const yStart = slope * xStart + intercept;
+    const yEnd = slope * xEnd + intercept;
 
-  //   group.selectAll(".brick")
-  // .data(d3.range(numBricks))
-  // .enter()
-  // .append("image")
-  // .attr("xlink:href", (d, i) => (i % 2 === 0 ? "/images/lego_block.png" : "/images/lego_block.png")) // alternate colors
-  // .attr("width", barX.bandwidth())
-  // .attr("height", brickHeight)
-  // .attr("x", 0)
-  // .attr("y", () => barY(0)) // Start collapsed at bottom
-  // .transition()
-  // .duration(200)
-  // .delay((_, i) => i * 30)
-  // .attr("y", (i) => barY(d.totalUnits) + i * brickHeight);
-  // });
+    // Draw the trendline
+    svg.append("line")
+      .attr("x1", x(xStart))
+      .attr("y1", y(yStart))
+      .attr("x2", x(xEnd))
+      .attr("y2", y(yEnd))
+      .attr("stroke", "black")
+      .attr("stroke-width", 1.5)
+      .attr("stroke-dasharray", "5,4")
+      .lower(); // Put behind dots
+  }
 
-  group.selectAll(".brick")
-    .data(d3.range(numBricks))
-    .enter()
-    .append("image")
-    .attr("xlink:href", "/images/lego_block.png") // 🧱 your lego piece
-    .attr("width", barX.bandwidth())
-    .attr("height", 90)  // 🧱 each brick height
-    .attr("x", 0)
-    .attr("y", barY(0))
-    .transition()
-    .duration(100)
-    .delay((_, i) => i * 30)
-    // .attr("y", (i) => barY((i) * brickHeightUnits));
-    .attr("y", (i) => barY((i + 6) * brickHeightUnits))
-  });
+  function initComplianceBoxPlot() {
+    const margin = { top: 20, right: 30, bottom: 50, left: 60 };
+    const width = 500 - margin.left - margin.right;
+    const height = 300 - margin.top - margin.bottom;
 
+    // Bins
+    const bins = [
+      { range: [0, 25], label: "0–25%" },
+      { range: [25, 50], label: "25–50%" },
+      { range: [50, 75], label: "50–75%" },
+      { range: [75, 100], label: "75–100%" },
+    ];
 
+    // Prepare SVG
+    const container = d3.select("#compliance-boxplot");
+    container.selectAll("svg").remove();
 
+    const svg = container.append("svg")
+      .attr("viewBox", `0 0 ${width + margin.left + margin.right} ${height + margin.top + margin.bottom}`)
+      .append("g")
+      .attr("transform", `translate(${margin.left},${margin.top})`);
 
-}
+    // Tooltip
+    const tooltip = container.append("div")
+      .style("position", "absolute")
+      .style("background", "white")
+      .style("padding", "6px 10px")
+      .style("border", "1px solid #ccc")
+      .style("border-radius", "6px")
+      .style("font-size", "12px")
+      .style("pointer-events", "none")
+      .style("opacity", 0);
+
+    // Bin and preprocess
+    const binned = bins.map(bin => {
+      const members = compScatterplotData.filter(d =>
+        d.singleFamilyPercent >= bin.range[0] &&
+        d.singleFamilyPercent < bin.range[1]
+      );
+      members.sort((a, b) => a.compliantZoningRate - b.compliantZoningRate);
+      const values = members.map(d => d.compliantZoningRate / 100);
+      const q1 = d3.quantile(values, 0.25);
+      const q2 = d3.quantile(values, 0.5);
+      const q3 = d3.quantile(values, 0.75);
+      const iqr = q3 - q1;
+      const min = d3.min(values);
+      const max = d3.max(values);
+      const regionMode = d3.rollup(members, v => v.length, d => d.region);
+      const dominantRegion = [...regionMode.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? "Unknown";
+      return {
+        ...bin,
+        values, members, q1, q2, q3, iqr, min, max, region: dominantRegion
+      };
+    });
+
+    const x = d3.scaleBand()
+      .domain(binned.map(d => d.label))
+      .range([0, width])
+      .paddingInner(0.4)
+      .paddingOuter(0.2);
+
+    const y = d3.scaleLinear()
+      .domain([0.8, 1.0])
+      .range([height, 0]);
+
+    // Axes
+    svg.append("g")
+      .attr("transform", `translate(0,${height})`)
+      .call(d3.axisBottom(x));
+
+    svg.append("g")
+      .call(d3.axisLeft(y).tickFormat(d3.format(".0%")));
+
+    svg.append("text")
+      .attr("x", width / 2)
+      .attr("y", height + 40)
+      .attr("text-anchor", "middle")
+      .text("% Single-Family Housing (Binned)");
+
+    svg.append("text")
+      .attr("transform", "rotate(-90)")
+      .attr("x", -height / 2)
+      .attr("y", -45)
+      .attr("text-anchor", "middle")
+      .text("Zoning Compliance Rate");
+
+    // Boxes
+    svg.selectAll(".box")
+      .data(binned)
+      .enter()
+      .append("rect")
+      .attr("class", "box")
+      .attr("x", d => x(d.label))
+      .attr("y", d => y(d.q3))
+      .attr("width", x.bandwidth())
+      .attr("height", d => y(d.q1) - y(d.q3))
+      .attr("fill", "#a6bddb")
+      .attr("stroke", "black")
+      .on("mouseover", (event, d) => {
+        tooltip.transition().duration(200).style("opacity", 0.9);
+        tooltip.html(`
+          <strong>${d.label}</strong><br/>
+          Count: ${d.values.length}<br/>
+          Q1: ${(d.q1 * 100).toFixed(1)}%<br/>
+          Median: ${(d.q2 * 100).toFixed(1)}%<br/>
+          Q3: ${(d.q3 * 100).toFixed(1)}%
+        `)
+          .style("left", `${event.pageX + 10}px`)
+          .style("top", `${event.pageY - 28}px`);
+      })
+      .on("mousemove", (event) => {
+        tooltip.style("left", `${event.pageX + 10}px`)
+          .style("top", `${event.pageY - 28}px`);
+      })
+      .on("mouseout", () => {
+        tooltip.transition().duration(300).style("opacity", 0);
+      });
+
+    // Medians
+    svg.selectAll(".median-line")
+      .data(binned)
+      .enter()
+      .append("line")
+      .attr("class", "median-line")
+      .attr("x1", d => x(d.label))
+      .attr("x2", d => x(d.label) + x.bandwidth())
+      .attr("y1", d => y(d.q2))
+      .attr("y2", d => y(d.q2))
+      .attr("stroke", "black")
+      .attr("stroke-width", 2);
+
+    // Jittered individual points
+    const jitter = 0.2 * x.bandwidth();
+
+    svg.selectAll(".point")
+      .data(binned.flatMap(d => d.members.map(m => ({ ...m, bin: d.label }))))
+      .enter()
+      .append("circle")
+      .attr("cx", d => x(d.bin) + x.bandwidth() / 2 + (Math.random() - 0.5) * jitter)
+      .attr("cy", d => y(d.compliantZoningRate / 100))
+      .attr("r", 3)
+      .attr("fill", "#3690c0")
+      .attr("opacity", 0.6)
+      .attr("stroke", "#333")
+      .on("mouseover", (event, d) => {
+        tooltip.transition().duration(200).style("opacity", 0.9);
+        tooltip.html(`
+          <strong>${d.town || "Unknown"}</strong><br/>
+          % Single-Family: ${d.singleFamilyPercent.toFixed(1)}%<br/>
+          % Compliant Zoning: ${d.compliantZoningRate.toFixed(1)}%<br/>
+          Population: ${d.totalPopulation.toLocaleString()}<br/>
+        `)
+          .style("left", `${event.pageX + 10}px`)
+          .style("top", `${event.pageY - 28}px`);
+      })
+      .on("mousemove", (event) => {
+        tooltip.style("left", `${event.pageX + 10}px`)
+          .style("top", `${event.pageY - 28}px`);
+      })
+      .on("mouseout", () => {
+        tooltip.transition().duration(300).style("opacity", 0);
+      });
+  }
 
   function onTabChange(tabName) {
     activeTab = tabName;
@@ -572,7 +882,7 @@
     if (!usePercentage) {
       // Find the maximum absolute value to normalize
       singleFamilyGeo.features.forEach(f => {
-        const fid = f.properties.fid;
+        const fid = f.properties.mapc_muni_id;
         const csvRow = singleFamilyCsvData.get(parseInt(fid));
         if (csvRow) {
           const group = incomeLevelGroups[selectedIncomeLevel];
@@ -590,7 +900,7 @@
     const updatedGeojson = {
       type: 'FeatureCollection',
       features: singleFamilyGeo.features.map(f => {
-        const fid = f.properties.fid;
+        const fid = f.properties.mapc_muni_id;
         const csvRow = singleFamilyCsvData.get(parseInt(fid));
 
         let normalizedValue = 0;
@@ -630,7 +940,10 @@
         data: updatedGeojson
       });
 
-      // Main colored fill layer
+      const labelLayerId = zoningMap.getStyle().layers.find(
+        l => l.type === 'symbol' && l.layout?.['text-field']
+      )?.id;
+
       zoningMap.addLayer({
         id: 'income-layer',
         type: 'fill',
@@ -640,17 +953,16 @@
             'interpolate',
             ['linear'],
             ['get', 'income_value'],
-            0, '#e0f3db',
-            0.1, '#a8ddb5',
-            0.2, '#7bccc4',
-            0.4, '#43a2ca',
-            0.6, '#0868ac',
-            0.8, '#084081'
+            0.0,  '#ffffb2',
+            0.25, '#fdbb84',
+            0.5,  '#fc4e2a',
+            0.75, '#9932cc',
+            1.0,  '#4b0082'
           ],
-          'fill-opacity': 1,
-          'fill-outline-color': '#fff'
+          'fill-opacity': 0.7,
+          'fill-outline-color': '#000'
         }
-      });
+      }, labelLayerId); // 👈 this ensures income-layer is added *below* labels
 
       // Hover outline layer (dark green)
       zoningMap.addLayer({
@@ -658,39 +970,42 @@
         type: 'line',
         source: 'income-source',
         paint: {
-          'line-color': '#006400', // DARK GREEN color
+          'line-color': '#801fb8', // DARK GREEN color
           'line-width': [
             'case',
-            ['boolean', ['feature-state', 'hover'], false],
-            3,
+            ['any',
+              ['boolean', ['feature-state', 'hover'], false],
+              ['boolean', ['feature-state', 'selected'], false]
+            ],
+            2,
             0
           ]
         }
       });
 
+      let selectedFeatureId = null;
       let hoveredFeatureId = null;
 
-      zoningMap.on('mousemove', 'income-layer', (e) => {
+      zoningMap.on('click', 'income-layer', (e) => {
         const feature = e.features[0];
         const props = feature.properties;
-        const fid = props.fid;
-        const csvRow = singleFamilyCsvData.get(parseInt(fid));
 
-        // Set feature state
-        if (hoveredFeatureId !== null) {
+        if (selectedFeatureId !== null) {
           zoningMap.setFeatureState(
-            { source: 'income-source', id: hoveredFeatureId },
-            { hover: false }
+            { source: 'income-source', id: selectedFeatureId },
+            { selected: false }
           );
         }
-        hoveredFeatureId = feature.id;
+        selectedFeatureId = feature.id;
         zoningMap.setFeatureState(
-          { source: 'income-source', id: hoveredFeatureId },
-          { hover: true }
+          { source: 'income-source', id: selectedFeatureId },
+          { selected: true }
         );
 
         // Update the fixed info box
-        const muniName = props.muni || 'Unknown';
+        const muniName = props.mapc_municipal
+          ? props.mapc_municipal.toLowerCase().replace(/\b\w/g, c => c.toUpperCase())
+          : 'Unknown';
         const infoBox = document.getElementById('hover-info');
         if (infoBox) {
           let displayValue;
@@ -700,10 +1015,117 @@
             displayValue = Math.round(props.income_raw || 0).toLocaleString(); // Format raw count nicely
           }
 
+          const fid = props.mapc_muni_id;
+          const csvRow = singleFamilyCsvData.get(parseInt(fid));
+
+          const incomeValues = incomeLevelGroups.map((group, i) => {
+            let count = 0;
+            group.forEach(col => {
+              count += parseFloat(csvRow?.[col] || 0);
+            });
+
+            return {
+              label: `Group ${i + 1}`, // or use real income range labels
+              index: i,
+              value: count
+            };
+          });
+
+          const muniName = props.mapc_municipal
+            ? props.mapc_municipal.toLowerCase().replace(/\b\w/g, c => c.toUpperCase())
+            : 'Unknown';
+
           infoBox.innerHTML = `
-            <strong>${muniName}</strong><br/>
-            <b>${usePercentage ? 'Households % in Selected Income Level:' : 'Number of Households:'}</b> ${displayValue}
+            <div style="width: 170px;">
+              <strong>${muniName}</strong><br/>
+              <span style="font-size: 0.9rem; color: #555; display: inline-block; line-height: 1.4;">Distribution of households by income bracket:</span><br/>
+              <svg id="donut-chart" width="120" height="120"></svg>
+            </div>
           `;
+
+          const svg = d3.select("#donut-chart");
+          svg.selectAll("*").remove();
+
+          const width = 120, height = 120, radius = 50;
+          const g = svg.append("g").attr("transform", `translate(${width/2},${height/2})`);
+
+          const pie = d3.pie().value(d => d.value);
+          const arc = d3.arc().innerRadius(30).outerRadius(radius);
+
+          // pop-out effect for selected slice
+          g.selectAll("path")
+            .data(pie(incomeValues))
+            .enter()
+            .append("path")
+            .attr("fill", d => colorScale(d.data.label))
+            .attr("stroke", "#fff")
+            .attr("stroke-width", 1)
+            .attr("d", arc)
+            .attr("transform", d => {
+              if (d.data.index === selectedIncomeLevel) {
+                const [x, y] = arc.centroid(d);
+                return `translate(${x * 0.2}, ${y * 0.2})`; // ⬅️ explode selected slice
+              }
+              return null;
+            });
+
+          // center label for value
+          const valueToDisplay = usePercentage
+            ? ((props.income_value || 0) * 100).toFixed(1) + '%'
+            : Math.round(props.income_raw || 0).toLocaleString();
+
+          g.append("text")
+            .attr("text-anchor", "middle")
+            .attr("alignment-baseline", "middle")
+            .attr("font-size", "14px")
+            .attr("font-family", "inherit")
+            .attr("fill", "#333")
+            .text(valueToDisplay);
+        }
+      });
+
+      zoningMap.on('click', (e) => {
+        // ✅ Only run this logic if income-layer exists
+        if (zoningMap.getLayer('income-layer')) {
+          const features = zoningMap.queryRenderedFeatures(e.point, {
+            layers: ['income-layer']
+          });
+
+          if (features.length === 0 && selectedFeatureId !== null) {
+            if (zoningMap.getSource('income-source')) {
+              zoningMap.setFeatureState(
+                { source: 'income-source', id: selectedFeatureId },
+                { selected: false }
+              );
+            }
+
+            selectedFeatureId = null;
+
+            const infoBox = document.getElementById('hover-info');
+            if (infoBox) {
+              infoBox.innerHTML = '<i>Click a municipality to explore housing details</i>';
+            }
+          }
+        }
+      });
+
+      zoningMap.on('mousemove', 'income-layer', (e) => {
+        const feature = e.features[0];
+
+        if (hoveredFeatureId !== null) {
+          zoningMap.setFeatureState(
+            { source: 'income-source', id: hoveredFeatureId },
+            { hover: false }
+          );
+        }
+
+        hoveredFeatureId = feature.id;
+
+        if (hoveredFeatureId !== selectedFeatureId) {
+          zoningMap.setFeatureState(
+            { source: 'income-source', id: hoveredFeatureId },
+            { hover: true }
+          );
         }
       });
 
@@ -715,12 +1137,6 @@
           );
         }
         hoveredFeatureId = null;
-
-        // Clear info box
-        const infoBox = document.getElementById('hover-info');
-        if (infoBox) {
-          infoBox.innerHTML = '<i>Hover over a municipality</i>';
-        }
       });
     }
   }
@@ -731,16 +1147,20 @@
       return;
     }
 
+    const selectedColumn = demographicColumns[selectedDemographic];
+
+    if (!selectedColumn) {
+      console.error("Invalid demographic selection:", selectedDemographic);
+      return;
+    }
+
+    // Find the maximum value for the selected demographic
     let maxDemoValue = 0;
     if (!usePercentage) {
-      singleFamilyGeo.features.forEach(f => {
-        const fid = f.properties.fid;
-        const csvRow = singleFamilyCsvData.get(parseInt(fid));
-        if (csvRow && demographicColumns[selectedDemographic]) {
-          const count = parseFloat(csvRow[demographicColumns[selectedDemographic]] || 0);
-          if (count > maxDemoValue) {
-            maxDemoValue = count;
-          }
+      complianceCsvData.forEach(row => {
+        const val = parseFloat(row[selectedColumn[0]] || 0);
+        if (val > maxDemoValue) {
+          maxDemoValue = val;
         }
       });
     }
@@ -748,19 +1168,23 @@
     const updatedGeojson = {
       type: 'FeatureCollection',
       features: singleFamilyGeo.features.map(f => {
-        const fid = f.properties.fid;
-        const csvRow = singleFamilyCsvData.get(parseInt(fid));
+        const fid = f.properties.mapc_muni_id;
+        const csvRow = complianceCsvData.get(parseInt(fid));
 
-        let normalizedValue = 0;
+        let percentages = 0;
         let rawCount = 0;
 
-        if (csvRow && demographicColumns[selectedDemographic]) {
-          rawCount = parseFloat(csvRow[demographicColumns[selectedDemographic]] || 0);
+        if (csvRow) {
           if (usePercentage) {
-            const pop = parseFloat(csvRow.pop || 0);
-            normalizedValue = (pop > 0) ? (rawCount / pop) : 0;
+            percentages = parseFloat(csvRow[selectedColumn[1]] || 0) / 100;
           } else {
-            normalizedValue = (maxDemoValue > 0) ? (rawCount / maxDemoValue) : 0;
+            rawCount = parseFloat(csvRow[selectedColumn[0]] || 0);
+            // Apply log-normalization to spread values more evenly
+            if (maxDemoValue > 0 && rawCount > 0) {
+              percentages = Math.log(rawCount + 1) / Math.log(maxDemoValue + 1);
+            } else {
+              percentages = 0;
+            }
           }
         }
 
@@ -769,7 +1193,7 @@
           id: fid,
           properties: {
             ...f.properties,
-            demo_value: normalizedValue,
+            demo_value: percentages,
             demo_raw: rawCount,
           }
         };
@@ -785,6 +1209,10 @@
       });
 
       // Add fill layer
+      const labelLayerId = zoningMap.getStyle().layers.find(
+        l => l.type === 'symbol' && l.layout?.['text-field']
+      )?.id;
+
       zoningMap.addLayer({
         id: 'demo-layer',
         type: 'fill',
@@ -794,17 +1222,17 @@
             'interpolate',
             ['linear'],
             ['get', 'demo_value'],
-            0, '#f7fbff',        // very pale blue (0%)
-            0.1, '#d2e3f3',      // light blue
-            0.3, '#a6bddb',      // mid blue
-            0.5, '#74a9cf',      // medium-deep blue
-            0.7, '#2b8cbe',      // deep blue
-            0.9, '#045a8d'       // dark blue
+            0,   '#c6dbef',
+            0.2, '#9ecae1',
+            0.4, '#6baed6',
+            0.6, '#4292c6',
+            0.8, '#2171b5',
+            1.0, '#084594'
           ],
-          'fill-opacity': 1,
-          'fill-outline-color': '#fff'
+          'fill-opacity': 0.7,
+          'fill-outline-color': '#000'
         }
-      });
+      }, labelLayerId);  // 👈 Insert below the first label layer
 
       // Add hover layer
       zoningMap.addLayer({
@@ -815,19 +1243,131 @@
           'line-color': '#000',
           'line-width': [
             'case',
-            ['boolean', ['feature-state', 'hover'], false],
-            3,
+            ['any',
+              ['boolean', ['feature-state', 'hover'], false],
+              ['boolean', ['feature-state', 'selected'], false]
+            ],
+            2,
             0
           ]
         }
       });
 
       // Hover behavior
+      let selectedFeatureId = null;
       let hoveredFeatureId = null;
 
-      zoningMap.on('mousemove', 'demo-layer', (e) => {
+      zoningMap.on('click', 'demo-layer', (e) => {
         const feature = e.features[0];
         const props = feature.properties;
+
+        if (selectedFeatureId !== null) {
+          zoningMap.setFeatureState(
+            { source: 'demo-source', id: selectedFeatureId },
+            { selected: false }
+          );
+        }
+        selectedFeatureId = feature.id;
+        zoningMap.setFeatureState(
+          { source: 'demo-source', id: selectedFeatureId },
+          { selected: true }
+        );
+
+        const fid = props.mapc_muni_id;
+        const csvRow = complianceCsvData.get(parseInt(fid));
+
+        const demoValues = Object.entries(demographicColumns).map(([label, cols]) => {
+          const percent = parseFloat(csvRow?.[cols[1]] || 0); // already %
+          return { label, value: percent };
+        });
+
+        const muniName = props.mapc_municipal
+          ? props.mapc_municipal.toLowerCase().replace(/\b\w/g, c => c.toUpperCase())
+          : 'Unknown';
+        const infoBox = document.getElementById('hover-info');
+        if (infoBox) {
+          let displayValue;
+          if (usePercentage) {
+            // format percentage with 1 decimal place
+            displayValue = (props.demo_value * 100).toFixed(1) + '%';
+          } else {
+            displayValue = props.demo_raw.toLocaleString(); // format raw counts with commas
+          }
+
+          infoBox.innerHTML = `
+            <div style="width: 170px;">
+              <strong>${muniName}</strong><br/>
+              <span style="font-size: 0.9rem; color: #555; display: inline-block; line-height: 1.4;">Distribution of households by demographic group:</span><br/>
+              <svg id="donut-chart" width="120" height="120"></svg>
+            </div>
+          `;
+
+          const svg = d3.select("#donut-chart");
+          svg.selectAll("*").remove(); // clear previous
+
+          const width = 120, height = 120, radius = 50;
+          const g = svg.append("g").attr("transform", `translate(${width/2},${height/2})`);
+
+          const pie = d3.pie().value(d => d.value);
+          const arc = d3.arc().innerRadius(30).outerRadius(radius);
+
+          g.selectAll("path")
+            .data(pie(demoValues))
+            .enter()
+            .append("path")
+            .attr("fill", d => colorScale(d.data.label))
+            .attr("stroke", "#fff")
+            .attr("stroke-width", 1)
+            .attr("d", arc)
+            .attr("transform", d => {
+              if (d.data.label === selectedDemographic) {
+                const [x, y] = arc.centroid(d);
+                return `translate(${x * 0.2}, ${y * 0.2})`; // ⬅️ explode selected slice
+              }
+              return null;
+            });
+
+          // Center label for selected group percentage or raw count
+          const selectedData = demoValues.find(d => d.label === selectedDemographic);
+          if (selectedData) {
+            const centerLabel = usePercentage
+              ? `${selectedData.value.toFixed(1)}%`
+              : Math.round(parseFloat(csvRow?.[demographicColumns[selectedDemographic][0]] || 0)).toLocaleString();
+
+            g.append("text")
+              .attr("text-anchor", "middle")
+              .attr("alignment-baseline", "middle")
+              .attr("font-size", "14px")
+              .attr("font-family", "inherit")
+              .attr("fill", "#333")
+              .text(centerLabel);
+          }
+        }
+      });
+
+      zoningMap.on('click', (e) => {
+        if (zoningMap.getLayer('demo-layer')) {
+          const features = zoningMap.queryRenderedFeatures(e.point, {
+            layers: ['demo-layer']
+          });
+
+          if (features.length === 0 && selectedFeatureId !== null) {
+            zoningMap.setFeatureState(
+              { source: 'demo-source', id: selectedFeatureId },
+              { selected: false }
+            );
+            selectedFeatureId = null;
+
+            const infoBox = document.getElementById('hover-info');
+            if (infoBox) {
+              infoBox.innerHTML = '<i>Click a municipality to explore housing details</i>';
+            }
+          }
+        }
+      });
+      
+      zoningMap.on('mousemove', 'demo-layer', (e) => {
+        const feature = e.features[0];
 
         if (hoveredFeatureId !== null) {
           zoningMap.setFeatureState(
@@ -835,29 +1375,16 @@
             { hover: false }
           );
         }
+
         hoveredFeatureId = feature.id;
-        zoningMap.setFeatureState(
-          { source: 'demo-source', id: hoveredFeatureId },
-          { hover: true }
-        );
 
-        const muniName = props.muni || 'Unknown';
-        const infoBox = document.getElementById('hover-info');
-        if (infoBox) {
-          let displayValue;
-          if (usePercentage) {
-            displayValue = (props.demo_value * 100).toFixed(1) + '%';
-          } else {
-            // displayValue = (Math.round(props.demo_raw || 0).toLocaleString()) * 1000000; // format raw counts with commas
-            displayValue = props.demo_raw.toLocaleString(); // format raw counts with commas
-          }
-
-          infoBox.innerHTML = `
-            <strong>${muniName}</strong><br/>
-            <b>${usePercentage ? 'Households % in Selected Demographics Group:' : 'Population Count:'}</b> ${displayValue}
-          `;
+        if (hoveredFeatureId !== selectedFeatureId) {
+          zoningMap.setFeatureState(
+            { source: 'demo-source', id: hoveredFeatureId },
+            { hover: true }
+          );
         }
-      });
+      })
 
       zoningMap.on('mouseleave', 'demo-layer', () => {
         if (hoveredFeatureId !== null) {
@@ -867,11 +1394,6 @@
           );
         }
         hoveredFeatureId = null;
-
-        const infoBox = document.getElementById('hover-info');
-        if (infoBox) {
-          infoBox.innerHTML = '<i>Hover over a municipality</i>';
-        }
       });
     }
   }
@@ -904,7 +1426,7 @@
     const updatedGeojson = {
       type: 'FeatureCollection',
       features: singleFamilyGeo.features.map(f => {
-        const fid = f.properties.fid;
+        const fid = f.properties.mapc_muni_id;
         const csvRow = singleFamilyCsvData.get(parseInt(fid));
         const hhTotal = parseFloat(csvRow?.hh || 0);
         const count = parseFloat(csvRow?.[selectedColumn] || 0) || 0;
@@ -937,6 +1459,10 @@
       });
 
       // Add fill layer
+      const labelLayerId = zoningMap.getStyle().layers.find(
+        l => l.type === 'symbol' && l.layout?.['text-field']
+      )?.id;
+
       zoningMap.addLayer({
         id: 'family-layer',
         type: 'fill',
@@ -946,18 +1472,18 @@
             'interpolate',
             ['linear'],
             ['get', 'family_value'],
-            0, '#fff7ec',     // very pale orange (near white)
-            0.02, '#fee8c8',  // pale orange
-            0.05, '#fdbb84',  // orange
-            0.1, '#fc8d59',   // darker orange
-            0.2, '#ef6548',   // red-orange
-            0.4, '#d7301f',   // red
-            0.6, '#990000'    // dark red
+            0,    '#fddbc7',  // deeper than before, light coral
+            0.05, '#fcae91',  // orange-coral
+            0.15, '#fb6a4a',  // rich orange-red
+            0.3,  '#de2d26',  // red
+            0.5,  '#a50f15',  // dark red
+            0.7,  '#7f0000',  // very dark red
+            1.0,  '#4d0000'   // almost maroon (deepest)
           ],
-          'fill-opacity': 1,
-          'fill-outline-color': '#fff'
+          'fill-opacity': 0.7,
+          'fill-outline-color': '#000'
         }
-      });
+      }, labelLayerId);  // 👈 Insert below label layer
 
       // Add hover layer
       zoningMap.addLayer({
@@ -965,22 +1491,128 @@
         type: 'line',
         source: 'family-source',
         paint: {
-          'line-color': '#000', // black outline on hover
+          'line-color': '#801fb8', // black outline on hover
           'line-width': [
             'case',
-            ['boolean', ['feature-state', 'hover'], false],
-            3,
+            ['any',
+              ['boolean', ['feature-state', 'hover'], false],
+              ['boolean', ['feature-state', 'selected'], false]
+            ],
+            2,
             0
           ]
         }
       });
 
       // Hover behavior
+      let selectedFeatureId = null;
       let hoveredFeatureId = null;
+
+      zoningMap.on('click', 'family-layer', (e) => {
+        const feature = e.features[0];
+        const props = feature.properties;
+
+        if (selectedFeatureId !== null) {
+          zoningMap.setFeatureState(
+            { source: 'family-source', id: selectedFeatureId },
+            { selected: false }
+          );
+        }
+        selectedFeatureId = feature.id;
+        zoningMap.setFeatureState(
+          { source: 'family-source', id: selectedFeatureId },
+          { selected: true }
+        );
+
+        const muniName = props.mapc_municipal
+          ? props.mapc_municipal.toLowerCase().replace(/\b\w/g, c => c.toUpperCase())
+          : 'Unknown';
+
+        const csvRow = singleFamilyCsvData.get(parseInt(feature.id));
+        const hhTotal = parseFloat(csvRow?.hh || 0);
+
+        const familyValues = Object.entries(familySizeOptions).map(([label, col]) => {
+          const count = parseFloat(csvRow?.[col] || 0);
+          return {
+            label,
+            value: usePercentage && hhTotal > 0 ? (count / hhTotal) * 100 : count
+          };
+        });
+
+        const selectedData = familyValues.find(d => d.label === selectedFamilySizeOption);
+        const centerText = usePercentage
+          ? `${selectedData.value.toFixed(1)}%`
+          : Math.round(selectedData.value).toLocaleString();
+
+        const infoBox = document.getElementById('hover-info');
+        if (infoBox) {
+          infoBox.innerHTML = `
+            <div style="width: 170px;">
+              <strong>${muniName}</strong><br/>
+              <span style="font-size: 0.9rem; color: #555; display: inline-block; line-height: 1.4;">Distribution of households by family size:</span><br/>
+              <svg id="donut-chart" width="120" height="120"></svg>
+            </div>
+          `;
+
+          const svg = d3.select("#donut-chart");
+          svg.selectAll("*").remove();
+
+          const width = 120, height = 120, radius = 50;
+          const g = svg.append("g").attr("transform", `translate(${width / 2}, ${height / 2})`);
+
+          const pie = d3.pie().value(d => d.value);
+          const arc = d3.arc().innerRadius(30).outerRadius(radius);
+          const color = d3.scaleOrdinal().domain(familyValues.map(d => d.label)).range(d3.schemeSet3);
+
+          g.selectAll("path")
+            .data(pie(familyValues))
+            .enter()
+            .append("path")
+            .attr("fill", d => colorScale(d.data.label))
+            .attr("stroke", "#fff")
+            .attr("stroke-width", 1)
+            .attr("d", arc)
+            .attr("transform", d => {
+              if (d.data.label === selectedFamilySizeOption) {
+                const [x, y] = arc.centroid(d);
+                return `translate(${x * 0.2}, ${y * 0.2})`; // ⬅️ explode selected slice
+              }
+              return null;
+            });
+
+          g.append("text")
+            .attr("text-anchor", "middle")
+            .attr("alignment-baseline", "middle")
+            .attr("font-size", "14px")
+            .attr("font-family", "inherit")
+            .attr("fill", "#333")
+            .text(centerText);
+        }
+      });
+
+      zoningMap.on('click', (e) => {
+        if (zoningMap.getLayer('family-layer')) {
+          const features = zoningMap.queryRenderedFeatures(e.point, {
+            layers: ['family-layer']
+          });
+
+          if (features.length === 0 && selectedFeatureId !== null) {
+            zoningMap.setFeatureState(
+              { source: 'family-source', id: selectedFeatureId },
+              { selected: false }
+            );
+            selectedFeatureId = null;
+
+            const infoBox = document.getElementById('hover-info');
+            if (infoBox) {
+              infoBox.innerHTML = '<i>Click a municipality to explore housing details</i>';
+            }
+          }
+        }
+      });
 
       zoningMap.on('mousemove', 'family-layer', (e) => {
         const feature = e.features[0];
-        const props = feature.properties;
 
         if (hoveredFeatureId !== null) {
           zoningMap.setFeatureState(
@@ -988,26 +1620,14 @@
             { hover: false }
           );
         }
+
         hoveredFeatureId = feature.id;
-        zoningMap.setFeatureState(
-          { source: 'family-source', id: hoveredFeatureId },
-          { hover: true }
-        );
 
-        const muniName = props.muni || 'Unknown';
-        const infoBox = document.getElementById('hover-info');
-        if (infoBox) {
-          let displayValue;
-          if (usePercentage) {
-            displayValue = (props.family_value * 100).toFixed(1) + '%';
-          } else {
-            displayValue = (props.family_value * maxFamilyCount).toFixed(0); // show raw count!
-          }
-
-          infoBox.innerHTML = `
-            <strong>${muniName}</strong><br/>
-            <b>${usePercentage ? 'Households % in Selected Family Size:' : 'Number of Households:'}</b> ${displayValue}
-          `;
+        if (hoveredFeatureId !== selectedFeatureId) {
+          zoningMap.setFeatureState(
+            { source: 'family-source', id: hoveredFeatureId },
+            { hover: true }
+          );
         }
       });
 
@@ -1019,11 +1639,6 @@
           );
         }
         hoveredFeatureId = null;
-
-        const infoBox = document.getElementById('hover-info');
-        if (infoBox) {
-          infoBox.innerHTML = '<i>Hover over a municipality</i>';
-        }
       });
     }
   }
@@ -1054,7 +1669,7 @@
 
   function onTimelineChange(event) {
     selectedYear = parseInt(event.target.value);
-    updateBarChart(selectedYear);
+    updateDensityBarChart(selectedYear);
   }
 
   function initScatterplot() {
@@ -1365,22 +1980,38 @@
     await loadData();
     await initScatterplot();
     await initZoningMap();
-    await initBarChart();
-    updateBarChart(selectedYear);
+    // await initComplianceScatterplot();
+    await initComplianceBoxPlot();
+    await initDensityBarChart();
+    await updateDensityBarChart(selectedYear);
 
-    // // ✨ Animate the scatterplot when it scrolls into view
-    // const scatterplot = document.getElementById('scatterplot');
+    const sections = document.querySelectorAll("section");
+    const navLinks = document.querySelectorAll(".nav-dots a");
 
-    // function onScroll() {
-    //   const rect = scatterplot.getBoundingClientRect();
-    //   if (rect.top < window.innerHeight - 100) { // 100px before fully appearing
-    //     scatterplot.classList.add('scatterplot-animate');
-    //     window.removeEventListener('scroll', onScroll); // Only trigger once
-    //   }
-    // }
+    function activateCurrentNavDot() {
+      const scrollPos = window.scrollY + window.innerHeight / 2;
 
-    // window.addEventListener('scroll', onScroll);
-    // onScroll(); // in case already visible
+      let currentSection = sections[0]; // fallback
+      for (const section of sections) {
+        const rect = section.getBoundingClientRect();
+        const sectionTop = window.scrollY + rect.top;
+        const sectionBottom = sectionTop + rect.height;
+
+        if (scrollPos >= sectionTop && scrollPos < sectionBottom) {
+          currentSection = section;
+          break;
+        }
+      }
+
+      navLinks.forEach(link => link.classList.remove("active"));
+
+      const activeId = currentSection.getAttribute("id");
+      const activeLink = [...navLinks].find(link => link.getAttribute("href") === `#${activeId}`);
+      if (activeLink) activeLink.classList.add("active");
+    }
+
+    window.addEventListener("scroll", activateCurrentNavDot);
+    await activateCurrentNavDot(); // Trigger once on load
   });
 
 </script>
@@ -1395,12 +2026,12 @@
 
 <main>
   <section id="home" style="
-  padding: 120px 20px;
-  text-align: center;
-  background: linear-gradient(135deg, #f9f4ef 0%, #e8e3dc 100%);
-  position: relative;
-  overflow: hidden;
-">
+    padding: 120px 20px;
+    text-align: center;
+    background: linear-gradient(135deg, #f9f4ef 0%, #e8e3dc 100%);
+    position: relative;
+    overflow: hidden;
+  ">
   <!-- Decorative shapes -->
   <div style="
     position: absolute;
@@ -1499,64 +2130,206 @@
   </style>
 </section>
 
-<section id="history-intro" style="padding: 60px 20px 40px 20px; background: #f9f4ef;">
-  <div class="section-header" style="font-size: 2.5rem; font-weight: bold; margin-bottom: 1.5rem; text-align: center;">The Evolution of Zoning in Boston</div>
+<!-- Page 1: Ancestral Housing Struggle -->
+<section id= "housing_struggle" style="max-width: 900px; margin: 3rem auto; padding: 0 20px;">
+  <div style="
+      background: #f9f4ef;
+      border-radius: 12px;
+      padding: 2.5rem;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+  ">
+    <!-- Comic image -->
+    <img
+      src="/images/comic-ancestors.png"
+      alt="Ancestors Searching for Housing"
+      style="width: 100%; border-radius: 8px; margin-bottom: 1.5rem;"
+    />
 
-  <div style="text-align: center; margin-bottom: 2rem;">
-    <!-- <img src="{import.meta.env.BASE_URL}images/zoninglaws.jpg" alt="Zoning Laws Timeline" 
-      style="max-width: 100%; height: auto; border-radius: 12px; box-shadow: 0 4px 8px rgba(0,0,0,0.1);" /> -->
-    <img src="images/zoninglaws.jpg" alt="Zoning Laws Timeline" 
-      style="max-width: 100%; height: auto; border-radius: 12px; box-shadow: 0 4px 8px rgba(0,0,0,0.1);" />
-  </div>
-
-  <div style="max-width: 800px; margin: 0 auto;">
-    <!-- Combined Beginning + Shift -->
-    <div style="margin-bottom: 2.5rem;">
-      <h3 style="font-size: 1.5rem; color: #5c5145; margin-bottom: 1rem;">From Planning to Exclusion</h3>
-      <p style="font-size: 1.15rem; line-height: 1.7; color: #333; margin-bottom: 1rem;">
-        In the early 1900s, zoning laws were created to organize land use and improve public safety. 
-        But by the 1920s in Boston, these rules became tools for <strong style="color: #5c5145;">segregation</strong>, 
-        deliberately limiting housing access for marginalized groups through single-family zoning 
-        and restrictive building codes.
-      </p >
-      <p style="font-style: italic; font-size: 1rem; color: #777; text-align: center;">
-        The map of the city was being redrawn — but not for everyone's benefit
-      </p >
+    <!-- Header -->
+    <div class="section-header" style="font-size: 2.5rem;">
+      Ancestral Housing Struggle
     </div>
 
-    <!-- Combined Impact + Future -->
-    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 2rem; margin-top: 2rem;">
-      <div>
-        <h3 style="font-size: 1.5rem; color: #5c5145; margin-bottom: 1rem;">Lasting Consequences</h3>
-        <p style="font-size: 1.15rem; line-height: 1.7; color: #333;">
-          These policies created <strong>lasting divides</strong> — today's housing prices, 
-          neighborhood segregation, and limited affordable options still reflect 
-          century-old zoning choices.
-        </p >
-        <div style="text-align: center; margin: 1.5rem 0;">
-          <!-- <img src="{import.meta.env.BASE_URL}images/figure1.jpg" alt="Zoning Impact"
-            style="max-width: 100%; height: auto; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);" /> -->
-          <img src="images/figure1.jpg" alt="Zoning Impact"
-            style="max-width: 100%; height: auto; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);" />
-        </div>
-      </div>
+    <!-- Guide text -->
+    <p style="font-size: 1.2rem; line-height: 1.6; color: #7c6757; text-align: center; margin-bottom: 1.8rem;">
+      From the 1950s onward, families across generations have faced the same challenge: finding a home they can afford.  
+      Grandparents combed neighborhoods for “FOR RENT” signs, only to find prices rising beyond their means.
+    </p>
 
-      <div>
-        <h3 style="font-size: 1.5rem; color: #5c5145; margin-bottom: 1rem;">Pathways to Reform</h3>
-        <p style="font-size: 1.15rem; line-height: 1.7; color: #333;">
-          Cities like Minneapolis are proving change is possible by eliminating 
-          <em>single-family-only zoning</em>. Boston now faces a choice: 
-          maintain exclusionary systems or create <strong style="color: #5c5145;">inclusive communities</strong> 
-          through zoning reform.
-        </p >
-        <p style="font-style: italic; font-size: 1rem; color: #777; margin-top: 1.5rem;">
-          We can build a better future — if we change how we plan it.
-        </p >
+    <!-- Take-aways -->
+    <ul style="list-style: disc inside; font-size: 1.1rem; line-height: 1.6; color: #7c6757; max-width: 700px; margin: 0 auto;">
+      <li>Housing costs have outpaced wage growth since the post-war era.</li>
+      <li>Single-family zoning and lack of multi-unit options squeezed supply.</li>
+      <li>Today’s young adults still inherit a legacy of limited, expensive choices.</li>
+    </ul>
+  </div>
+</section>
+
+<!-- Timeline Section -->
+<section id="housing_timeline" style="max-width: 900px; margin: 3rem auto; padding: 0 20px;">
+  <div class="section-header" style="font-size: 2.5rem;">
+    Housing Struggles Across Decades
+  </div>
+
+  <div style="position: relative; padding: 2rem 0;">
+    <!-- Vertical timeline line -->
+    <div style="
+      position: absolute;
+      top: 0;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 4px;
+      height: 100%;
+      background: #ddd;
+    "></div>
+
+    <!-- Timeline Entry: 1950s -->
+    <div style="
+      position: relative;
+      width: 50%;
+      padding: 1rem 2rem 1rem 0;
+      box-sizing: border-box;
+      text-align: right;
+    ">
+      <div style="
+        position: absolute;
+        right: -9px;
+        top: 1.5rem;
+        width: 18px;
+        height: 18px;
+        background: #f9f4ef;
+        border: 3px solid #5c5145;
+        border-radius: 50%;
+      "></div>
+
+      <div class="timeline-card" style="
+        display: inline-block;
+        background: white;
+        border-radius: 12px;
+        padding: 1rem;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+      ">
+        <h3 style="margin: 0 0 0.5rem; font-size: 1.4rem; color: #5c5145;">1950s:</h3>
+        <h3 style="margin: 0 0 0.5rem; font-size: 1.2rem; color: #5c5145;">Suburban Single-Family Zoning</h3>
+        <img src="/images/comic-1950s.png" alt="1950s housing"
+             style="width: 200px; border-radius: 6px; margin-bottom: 0.5rem;" />
+        <p style="margin: 0; font-size: 1rem; color: #7c6757; line-height: 1.4;">
+          In the post-war boom, Boston and its suburbs adopted large-lot, single-family zoning districts. Grandparents scoured rental ads—only to find costs climbing beyond reach.
+        </p>
+      </div>
+    </div>
+
+    <!-- Timeline Entry: 1980s -->
+    <div style="
+      position: relative;
+      width: 50%;
+      left: 50%;
+      padding: 1rem 0 1rem 2rem;
+      box-sizing: border-box;
+      text-align: left;
+    ">
+      <div style="
+        position: absolute;
+        left: -9px;
+        top: 1.5rem;
+        width: 18px;
+        height: 18px;
+        background: #f9f4ef;
+        border: 3px solid #5c5145;
+        border-radius: 50%;
+      "></div>
+
+      <div class="timeline-card" style="
+        display: inline-block;
+        background: white;
+        border-radius: 12px;
+        padding: 1rem;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+      ">
+        <h3 style="margin: 0 0 0.5rem; font-size: 1.4rem; color: #5c5145;">1980s:</h3>
+        <h3 style="margin: 0 0 0.5rem; font-size: 1.2rem; color: #5c5145;">Redlining and Discretionary Controls</h3>
+        <img src="/images/comic-1980s.png" alt="1980s housing"
+             style="width: 200px; border-radius: 6px; margin-bottom: 0.5rem;" />
+        <p style="margin: 0; font-size: 1rem; color: #7c6757; line-height: 1.4;">
+          Their children faced the same “FOR RENT” frustration in growing cities. Although formal redlining maps date earlier, the 1980s saw their legacy solidify in zoning practice: neighborhoods graded “hazardous” (often communities of color) remained problematic.
+        </p>
+      </div>
+    </div>
+
+    <!-- Timeline Entry: 2000s -->
+    <div style="
+      position: relative;
+      width: 50%;
+      padding: 1rem 2rem 1rem 0;
+      box-sizing: border-box;
+      text-align: right;
+    ">
+      <div style="
+        position: absolute;
+        right: -9px;
+        top: 1.5rem;
+        width: 18px;
+        height: 18px;
+        background: #f9f4ef;
+        border: 3px solid #5c5145;
+        border-radius: 50%;
+      "></div>
+
+      <div class="timeline-card" style="
+        display: inline-block;
+        background: white;
+        border-radius: 12px;
+        padding: 1rem;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+      ">
+        <h3 style="margin: 0 0 0.5rem; font-size: 1.4rem; color: #5c5145;">2000s:</h3>
+        <h3 style="margin: 0 0 0.5rem; font-size: 1.2rem; color: #5c5145;">Inclusionary Development Policy (IDP)</h3>
+        <img src="/images/comic-2000s.png" alt="2000s housing"
+             style="width: 200px; border-radius: 6px; margin-bottom: 0.5rem;" />
+        <p style="margin: 0; font-size: 1rem; color: #7c6757; line-height: 1.4;">
+          In 2000, Mayor Menino issued an executive order creating Boston’s first Inclusionary Development Policy. Any new project of ten-plus units needing zoning relief or City financing must include a share of permanently income-restricted homes.
+        </p>
+      </div>
+    </div>
+
+    <!-- Timeline Entry: 2020s -->
+    <div style="
+      position: relative;
+      width: 50%;
+      left: 50%;
+      padding: 1rem 0 1rem 2rem;
+      box-sizing: border-box;
+      text-align: left;
+    ">
+      <div style="
+        position: absolute;
+        left: -9px;
+        top: 1.5rem;
+        width: 18px;
+        height: 18px;
+        background: #f9f4ef;
+        border: 3px solid #5c5145;
+        border-radius: 50%;
+      "></div>
+
+      <div class="timeline-card" style="
+        display: inline-block;
+        background: white;
+        border-radius: 12px;
+        padding: 1rem;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+      ">
+        <h3 style="margin: 0 0 0.5rem; font-size: 1.4rem; color: #5c5145;">2020s:</h3>
+        <h3 style="margin: 0 0 0.5rem; font-size: 1.2rem; color: #5c5145;">MBTA Communities Act & Ongoing Reforms</h3>
+        <img src="/images/comic-2020s.png" alt="2020s housing"
+             style="width: 200px; border-radius: 6px; margin-bottom: 0.5rem;" />
+        <p style="margin: 0; font-size: 1rem; color: #7c6757; line-height: 1.4;">
+          In 2021, the state enacted the MBTA Communities Act, requiring the 177 municipalities served by MBTA transit (Boston itself is exempt) to zone for walkable, moderate-density multifamily housing near stations. Concurrently, Boston updated its IZ rules in late 2024, raising set-aside requirements to further boost affordability. However, today’s renters see “RENT TOO HIGH” on every listing—proof the cycle continues.
+        </p>
       </div>
     </div>
   </div>
 </section>
-
 
 <section id="key-takeaways" style="max-width: 1200px; margin: 3rem auto; padding: 0 20px;">
     <h2 style="font-size: 2.5rem; font-weight: bold; margin-bottom: 1.5rem; text-align: center;">Navigating Boston's Housing Landscape</h2>
@@ -1678,50 +2451,65 @@
 
   <section id="timeline" class="alt-bg">
     <div style="display: flex; flex-wrap: wrap; gap: 2rem; align-items: stretch; min-height: 100vh;">
+    
       <!-- LEFT: Text Content -->
       <div style="flex: 1; min-width: 300px; background-color: rgba(255, 255, 255, 0.9); padding: 2rem; display: flex; flex-direction: column; justify-content: space-between;">
-        <div class="section-header">Emergence of New Housing Over Time</div>
-      </div>
-      <!-- RIGHT: Timeline Map -->
-      <div style="flex: 2; min-width: 500px; padding: 2rem 6rem 2rem 2rem;">
-        <!-- Flex Row: Search + Year slider -->
-        <div class="container-fluid d-flex justify-content-between align-items-center mb-4" style="max-width: 1200px; padding: 0 2rem;">
-          <!-- Left: Search Box -->
-          <div class="d-flex align-items-center gap-2">
-            <!-- <input
-              type="text"
-              placeholder="Search municipality..."
-              class="search-box"
-              bind:value={searchQuery}
-              on:input={onSearch}
-            /> -->
-          </div>
-      
-          <!-- Right: Year Label + Slider -->
-          <div class="d-flex align-items-center gap-3">
-            <span class="fw-bold" style="font-size: 1rem;">Year Selected: {selectedYear}</span>
-            <div class="slider-wrapper" style="width: 450px;">
-              <div class="slider-track">
-                <!-- (optional tick marks, similar to income slider) -->
-              </div>
-              <input
-                type="range"
-                min="1980"
-                max="2025"
-                step="1"
-                bind:value={selectedYear}
-                on:input={onTimelineChange}
-                class="form-range custom-slider"
-              />
+        <div>
+          <div class="section-header">Emergency of Housing Over Time</div>
+          
+          <p style="margin-top: 1rem; font-size: 0.95rem; line-height: 1.5;">
+            
+          </p>
+        </div>
+      </div>      
+  
+      <!-- RIGHT: Bar Chart + Top-Centered Slider -->
+      <div style="flex: 2; min-width: 500px; padding: 3rem 6rem 2rem 2rem; display: flex; flex-direction: column; align-items: center;">
+        <!-- Year Slider -->
+        <div class="d-flex flex-column align-items-center mb-4" style="width: 100%; max-width: 600px;">
+          <label for="density-year-slider" class="form-label fw-bold mb-2" style="font-size: 1rem;">Year Selected: <span id="density-year-label">{selectedYear}</span></label>
+          <div class="slider-wrapper" style="width: 100%;">
+            <div class="slider-track">
+              <div class="slider-segment" style="left: 25%;"></div>
+              <div class="slider-segment" style="left: 50%;"></div>
+              <div class="slider-segment" style="left: 75%;"></div>
+            </div>            
+            <input
+              id="density-year-slider"
+              type="range"
+              min="1985"
+              max="2025"
+              step="1"
+              value={selectedYear}
+              class="form-range custom-slider"
+              on:input={onTimelineChange}
+            />
+            <div class="slider-labels d-flex justify-content-between" style="font-size: 0.85rem; margin-top: 0.25rem;">
+              <span>1985</span><span>1995</span><span>2005</span><span>2015</span><span>2025</span>
             </div>
           </div>
         </div>
-      
-        <!-- Map Container -->
-        <div class="d-flex justify-content-center">
-          <div class="box" style="height: 600px; width: 100%; max-width: 1200px; background-color: #e9e3d9;">
-            <div id="timeline-map" style="position: relative; height: 100%; width: 100%;">
-              <!-- Timeline Mapbox will go here -->
+
+        <!-- Bar Chart -->
+        <div style="width: 100%; max-width: 1200px;">
+          <div class="box" style="height: 600px; width: 100%; background-color: #e9e3d9; overflow: hidden;">
+            <div id="density-bar-chart" style="position: relative; height: 100%; width: 100%; overflow: visible;">
+              <!-- Top/Bottom Density toggle in top-right corner of plot -->
+              <div style="position: absolute; top: 16px; right: 16px; z-index: 10;">
+                <div class="density-toggle-switch">
+                  <input 
+                    type="checkbox" 
+                    id="densityRankSwitch" 
+                    class="toggle-input" 
+                    bind:checked={showBottom}
+                    on:change={() => { updateDensityBarChart(selectedYear); }}
+                  />
+                  <label class="toggle-label" style="font-size: 0.9rem; width: 160px" for="densityRankSwitch">
+                    <span class="toggle-text">{showBottom ? 'Bottom 10 Densed' : 'Top 10 Densed'}</span>
+                    <span class="toggle-thumb" style="width: 27px; height: 27px; border-radius: 50%; right: 2px; transform: {showBottom ? 'translateX(130px)' : 'translateX(0)'};"></span>
+                  </label>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -1733,120 +2521,99 @@
     <div style="display: flex; flex-wrap: wrap; gap: 2rem; align-items: stretch; min-height: 100vh;">
       <!-- LEFT: Text Content -->
       <div style="flex: 1; min-width: 300px; background-color: rgba(255, 255, 255, 0.9); padding: 2rem; display: flex; flex-direction: column; justify-content: space-between;">
-        <div class="section-header">Housing Explorer</div>
-      </div>
+        <div>
+          <div class="section-header">Housing Access Across Communities</div>
+          
+          <p style="margin-top: 1rem; font-size: 0.95rem; line-height: 1.5;">
+            To understand <strong>how zoning reforms affect affordable housing in Greater Boston</strong>, we need to examine both <strong>who lives where</strong> and <strong>how local zoning laws shape the housing landscape</strong>.
+            The map on the right shows the <strong>demographic and income distribution</strong> of residents, helping renters and buyers earning <strong>60–100% of the Area Median Income (AMI)</strong> identify communities with similar profiles.
+            On the left, the boxplot connects this to zoning policy by showing how <strong>single-family zoning patterns</strong> relate to each municipality's <strong>compliance with state housing mandates</strong>.
+            We find that communities with <strong>higher shares of single-family housing</strong> often show <strong>less consistent compliance</strong>, pointing to how <strong>restrictive zoning may limit affordable housing opportunities</strong>.
+            Together, these tools highlight <strong>where zoning creates barriers</strong>—and <strong>where reform could open doors</strong> for more equitable housing access.
+          </p>
+        </div>
+      
+        <!-- 🔽 Bottom-aligned scatterplot -->
+        <div id="compliance-boxplot"></div>
+      </div>      
       <!-- RIGHT: Map -->
-      <div style="flex: 2; min-width: 500px; padding: 2rem 6rem 2rem 2rem;">
-        <!-- Tabs and Slider side-by-side -->
-        <div class="container-fluid d-flex justify-content-between align-items-center mb-4" style="max-width: 1600px; padding: 0 2rem;">
-          <ul class="nav nav-tabs" id="housingTabs" role="tablist">
+      <div style="flex: 2; min-width: 500px; padding: 3rem 6rem 2rem 2rem; display: flex; flex-direction: column; align-items: center;">
+        <!-- Combined Row: Tabs (left) + Selector (right) -->
+        <div style="width: 100%; max-width: 1200px; margin-bottom: 1.5rem; display: flex; justify-content: space-between; flex-wrap: wrap; gap: 1rem; font-size: 0.9rem;">
+          <!-- Tabs -->
+          <ul class="nav nav-tabs mb-0" id="housingTabs" role="tablist">
             <li class="nav-item" role="presentation">
-              <button 
-                class="nav-link custom-tab" 
-                class:active={activeTab === 'income'} 
-                type="button" 
-                on:click={() => onTabChange('income')}
-              >
-                By Income
-              </button>
+              <button class="nav-link custom-tab" class:active={activeTab === 'income'} type="button" on:click={() => onTabChange('income')}>By Income</button>
             </li>
             <li class="nav-item" role="presentation">
-              <button 
-                class="nav-link custom-tab"
-                class:active={activeTab === 'demographics'}
-                type="button"
-                on:click={() => onTabChange('demographics')}
-              >
-                By Demographics
-              </button>
+              <button class="nav-link custom-tab" class:active={activeTab === 'demographics'} type="button" on:click={() => onTabChange('demographics')}>By Demographics</button>
             </li>
             <li class="nav-item" role="presentation">
-              <button 
-                class="nav-link custom-tab" 
-                class:active={activeTab === 'family'}
-                type="button" 
-                on:click={() => onTabChange('family')}
-              >
-                By Family Size
-              </button>
+              <button class="nav-link custom-tab" class:active={activeTab === 'family'} type="button" on:click={() => onTabChange('family')}>By Family Size</button>
             </li>
           </ul>
-          <!-- Switch between percentage and raw counts-->
-          <div class="density-toggle-switch">
-            <input 
-              type="checkbox" 
-              id="densitySwitch" 
-              class="toggle-input" 
-              bind:checked={usePercentage}
-              on:change={() => { onTabChange(activeTab); }}
-            />
-            <label class="toggle-label" for="densitySwitch">
-              <span class="toggle-text">{usePercentage ? 'Density (%)' : 'Absolute #'}</span>
-              <span class="toggle-thumb"></span>
-            </label>
-          </div>                        
-          <!-- Slider for Income Level -->
-          {#if activeTab === 'income'}
-          <div class="d-flex align-items-center gap-3">
-            <label for="incomeRange" class="form-label fw-bold mb-0" style="min-width: 120px;">Income Level</label>
-            <div class="slider-wrapper">
-              <div class="slider-track">
-                <div class="slider-segment"></div>
-                <div class="slider-segment"></div>
-                <div class="slider-segment"></div>
-                <div class="slider-segment"></div>
-                <div class="slider-segment"></div>
+
+          <!-- Conditional Selector -->
+          <div style="display: flex; align-items: center; gap: 0.75rem;">
+            {#if activeTab === 'income'}
+              <label for="incomeRange" class="form-label fw-bold mb-0">Income Level</label>
+              <div class="slider-wrapper" style="width: 350px;">
+                <div class="slider-track">
+                  <div class="slider-segment"></div>
+                  <div class="slider-segment"></div>
+                  <div class="slider-segment"></div>
+                  <div class="slider-segment"></div>
+                  <div class="slider-segment"></div>
+                </div>
+                <input id="incomeRange" type="range" min="0" max="5" step="1" bind:value={selectedIncomeLevel} on:input={onIncomeChange} class="form-range custom-slider" />
+                <div class="slider-labels">
+                  <span>&lt;25k</span><span>25k–50k</span><span>50k–100k</span><span>100k–150k</span><span>150k–200k</span><span>&gt;200k</span>
+                </div>
               </div>
-              <input
-                id="incomeRange"
-                type="range"
-                min="0"
-                max="5"
-                step="1"
-                on:input={onIncomeChange}
-                class="form-range custom-slider"
-              />
-              <div class="slider-labels">
-                <span>&lt;25k</span>
-                <span>25k–50k</span>
-                <span>50k–100k</span>
-                <span>100k–150k</span>
-                <span>150k–200k</span>
-                <span>&gt;200k</span>
-              </div>
-            </div>
-          </div>       
-          {/if}
-          <!-- Drop down menu for demo groups-->
-          {#if activeTab === 'demographics'}
-            <div class="d-flex align-items-center gap-3">
-              <label for="demographicSelect" class="form-label fw-bold mb-0" style="min-width: 150px;">Demographic Type</label>
-              <select id="demographicSelect" class="form-select" style="width: 300px;" on:change={onDemographicChange}>
+            {/if}
+            {#if activeTab === 'demographics'}
+              <label for="demographicSelect" class="form-label fw-bold mb-0">Demographic Type</label>
+              <select id="demographicSelect" class="form-select" style="width: 300px;" bind:value={selectedDemographic} on:change={onDemographicChange}>
                 {#each Object.keys(demographicColumns) as demo}
                   <option value={demo}>{demo}</option>
                 {/each}
               </select>
-            </div>
-          {/if}
-          <!-- Drop down for family size -->
-          {#if activeTab === 'family'}
-            <div class="d-flex align-items-center gap-3">
-              <label for="familySizeSelect" class="form-label fw-bold mb-0" style="min-width: 150px;">Select Family Size</label>
-              <select id="familySizeSelect" class="form-select" style="width: 300px;" on:change={onFamilySizeChange}>
+            {/if}
+            {#if activeTab === 'family'}
+              <label for="familySizeSelect" class="form-label fw-bold mb-0">Family Size</label>
+              <select id="familySizeSelect" class="form-select" style="width: 300px;" bind:value={selectedFamilySizeOption} on:change={onFamilySizeChange}>
                 {#each Object.keys(familySizeOptions) as sizeLabel}
                   <option value={sizeLabel}>{sizeLabel}</option>
                 {/each}
               </select>
-            </div>
-          {/if}
+            {/if}
+          </div>
         </div>
 
-        <div class="tab-content">
+        <div class="tab-content" style="width: 100%; max-width: 1200px;">
           <!-- By Income Tab -->
-          <div class="tab-pane fade show active" id="income" role="tabpanel">
-            <div class="d-flex justify-content-center">
-              <div class="box" style="height: 600px; width: 100%; max-width: 1200px; background-color: #e9e3d9;">
+          <div class="tab-pane fade show active" id="income" role="tabpanel" >
+            <div style="display: flex; justify-content: center; width: 100%;">
+              <div class="box" style="height: 600px; width: 100%; background-color: #e9e3d9;">
                 <div id="income-map" style="position: relative; height: 100%; width: 100%;">
+                  <!-- Density toggle in top-left corner of map -->
+                  <div style="position: absolute; top: 16px; left: 16px; z-index: 10;">
+                    <div class="density-toggle-switch">
+                      <input 
+                        type="checkbox" 
+                        id="densitySwitch" 
+                        class="toggle-input" 
+                        bind:checked={usePercentage}
+                        on:change={() => { onTabChange(activeTab); }}
+                      />
+                      <label class="toggle-label" style="font-size: 0.9rem" for="densitySwitch">
+                        <span class="toggle-text">{usePercentage ? 'Density (%)' : 'Absolute #'}</span>
+                        <span class="toggle-thumb"></span>
+                      </label>
+                    </div>
+                  </div>
+            
+                  <!-- Legend and hover-info -->
                   <div id="legend">
                     {#if activeTab === 'income'}
                       <div class="income-legend-gradient"></div>
@@ -1857,59 +2624,23 @@
                     {/if}
                     <div class="legend-labels">
                       {#if usePercentage}
-                        <span>0%</span>
-                        <span>50%</span>
-                        <span>100%</span>
+                        <span class="legend-label top">100%</span>
+                        <span class="legend-label middle">50%</span>
+                        <span class="legend-label bottom">0%</span>
                       {:else}
-                        <span>0</span>
-                        <span>mid</span>
-                        <span>high</span>
+                        <span class="legend-label top">high</span>
+                        <span class="legend-label middle">mid</span>
+                        <span class="legend-label bottom">0</span>
                       {/if}
-                    </div>
+                    </div>                    
                   </div>
                   <div id="hover-info" class="info-box">
-                    <i>Hover over a municipality</i>
-                  </div>                  
-                </div>                
+                    <i>Click a municipality to explore housing details</i>
+                  </div>
+                </div>
               </div>
-            </div>
+            </div>            
           </div>          
-
-          <!-- By Demographics Tab -->
-          <div class="tab-pane fade" id="demographics" role="tabpanel">
-            <div class="row g-4 justify-content-center">
-              <div class="col-md-8">
-                <div class="box" style="height: 500px; background-color: #e9e3d9;">
-                  <div class="d-flex justify-content-center align-items-center h-100 text-dark">
-                    [ Demographic-Based Interactive Map ]
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <!-- By Family Size Tab -->
-          <div class="tab-pane fade" id="family" role="tabpanel">
-            <div class="row g-4 justify-content-center">
-              <div class="col-md-4">
-                <div class="box">
-                  <label for="familySize" class="form-label fw-bold">Family Size</label>
-                  <select id="familySize" class="form-select">
-                    <option>1 person</option>
-                    <option>2 people</option>
-                    <option>3+</option>
-                  </select>
-                </div>
-              </div>
-              <div class="col-md-8">
-                <div class="box" style="height: 500px; background-color: #e9e3d9;">
-                  <div class="d-flex justify-content-center align-items-center h-100 text-dark">
-                    [ Family Size-Based Interactive Map ]
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
         </div>
       </div>
     </div>
@@ -1917,21 +2648,137 @@
 
 </main>
   
-<footer>
+<footer style="
+    color: white;
+    padding: 2rem 20px;
+    text-align: center;
+  ">
+
+  <div style="
+    font-size: 1.3rem;
+    font-weight: 600;
+    margin-bottom: 0.75rem;
+    text-align: center;
+  ">
+    Acknowledgements
+  </div>
+
+  <div style="
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.75rem;
+    font-size: 1rem;
+    color: white;
+    margin-bottom: 1.5rem;
+    text-align: center;
+    max-width: 800px;
+    margin-left: auto;
+    margin-right: auto;
+    ">
+    <p style="margin: 0;">
+    This project was developed with guidance and feedback from the  
+    <a href="https://www.mapc.org" style="color: white; text-decoration: underline;">
+      Metropolitan Area Planning Council (MAPC)
+    </a> 
+    as part of MIT's <em>Data Visualization and Society</em> course.
+    </p>
+    <p style="margin: 0;">
+    We’re grateful to the course staff for their support throughout the semester—especially in helping us clarify our ideas, iterate on design, and ground our work in real community impact.
+    </p>
+    <p style="margin: 0;">
+    Comic illustrations were generated with AI to visualize key moments across housing history.
+    </p>
+  </div>
+
+  <div style="
+      font-size: 1.3rem;
+      font-weight: 600;
+      margin-bottom: 0.75rem;
+  ">
+    References
+  </div>
+
+  <!-- References in the footer -->
+  <div style="
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 1.5rem;
+      margin-bottom: 1.5rem;
+  ">
+    <a href="https://www.bostonfairhousing.org/timeline/1950s-1975-Suburbs.html"
+       style="color: white; text-decoration: underline; font-size: 1rem;">
+      Boston Fair Housing
+    </a >
+    <a href="https://www.bostonindicators.org/-/media/indicators/boston-indicators-reports/report-files/exclusionarybydesign_report_nov_8.pdf"
+       style="color: white; text-decoration: underline; font-size: 1rem;">
+      Exclusionary by Design
+    </a >
+    <a href="https://www.bostonplans.org/getattachment/43eefea6-85ae-48ee-965a-6358ea84bc7e"
+       style="color: white; text-decoration: underline; font-size: 1rem;">
+      Boston's Inclusionary Development Policy
+    </a >
+    <a href="https://www.mass.gov/info-details/mbta-communities-law-qa"
+       style="color: white; text-decoration: underline; font-size: 1rem;">
+      MBTA Communities Law
+    </a >
+    <a href="https://www.nerdwallet.com/article/mortgages/average-down-payment-on-a-house"
+       style="color: white; text-decoration: underline; font-size: 1rem;">
+      Average Down Payment on a House
+    </a >
+    <a href="https://www.chase.com/personal/mortgage/education/financing-a-home/what-percentage-income-towards-mortgage"
+       style="color: white; text-decoration: underline; font-size: 1rem;">
+      Income Toward Mortgage
+    </a >
+  </div>
+
+  <!-- Data Sources -->
+  <div style="
+      font-size: 1.3rem;
+      font-weight: 600;
+      margin-bottom: 0.75rem;
+  ">
+    Data Sources
+  </div>
+  <div style="
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 1.5rem;
+      margin-bottom: 1.5rem;
+  ">
+    <a href="https://www.mass.gov/info-details/massgis-data-2020-us-census-towns"
+       style="color: white; text-decoration: underline; font-size: 1rem;">
+      Boston Census 2020
+    </a >
+    <a href="https://datacommon.mapc.org/browser/datasets/390"
+       style="color: white; text-decoration: underline; font-size: 1rem;">
+      MAPC Parcel Zoning Compliance Data
+    </a >
+    <a href="https://datacommon.mapc.org/browser/datasets/421"
+       style="color: white; text-decoration: underline; font-size: 1rem;">
+      Boston Single Family Zoning Data
+    </a >
+  </div>
+
+  <!-- Project credits -->
+  <div style="font-size: 0.9rem;">
     Blueprint Boston | Sophie Suo, Cynthia Qi, Tiffany Wang | Spring 2025
+  </div>
 </footer>
 
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Lato:wght@400;700&family=Montserrat:wght@700&display=swap');
 
   :root {
-    --primary-warm: #e98b6d;   /* Soft coral */
-    --secondary-warm: #f3ebe3; /* Sand Beige */
-    --accent-deep: #a74a44;    /* Brick Red */
-    --neutral-main: #7c6757;   /* Deep Taupe */
-    --neutral-light: #dad2c9;  /* Soft Gray */
-    --accent-hope: #a6b9a3;    /* Sage Green */
-  }
+  --primary-warm: #deb7b0;     /* Muted Rose */
+  --secondary-warm: #f4edea;   /* Soft Blush Beige */
+  --accent-deep: #a68ba5;      /* Dusty Mauve */
+  --neutral-main: #6f5a69;     /* Muted Plum Taupe */
+  --neutral-light: #e4dce6;    /* Pale Lilac Gray */
+  --accent-hope: #baa6d0;      /* Lavender */
+}
 
   main {
       font-family: 'Lato', sans-serif;
@@ -1980,25 +2827,29 @@
     transition: opacity 0.3s, transform 0.3s;
   }
 
-/* Show tooltip on hover */
-.nav-dots a:hover::after {
-  opacity: 1;
-  transform: translateY(-50%) translateX(-5px);
-}
+  /* Show tooltip on hover */
+  .nav-dots a:hover::after {
+    opacity: 1;
+    transform: translateY(-50%) translateX(-5px);
+  }
 
-  .nav-dots a:hover,
-  .nav-dots a.active {
-      background-color: var(--accent-hope);
+  .nav-dots a:hover {
+    background-color: var(--accent-hope);
+  }
+
+  :global(.nav-dots a.active) {
+    background-color: #baa6d0 !important; /* pastel purple */
+    transform: scale(1.3);
   }
 
   section {
-      /* padding: 6rem 4rem; */
-      /* padding: 0rem 2rem; */
-      border-bottom: 1px solid #e0d6c6;
-      min-height: 100vh;
-      display: flex;
-      flex-direction: column;
-      justify-content: center;
+    /* padding: 6rem 4rem; */
+    /* padding: 0rem 2rem; */
+    border-bottom: 1px solid #e0d6c6;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
   }
 
   .section-header {
@@ -2044,10 +2895,27 @@
     color: var(--neutral-main);
   }
 
-  .custom-tab.active {
+  .custom-tab {
+    border: 2px solid var(--accent-hope); /* lavender border */
+    border-radius: 8px;
+    padding: 6px 12px;
+    background-color: white;
+    color: var(--neutral-main);
+    margin-right: 8px;
+    font-weight: 500;
+    transition: all 0.2s ease;
+    cursor: pointer;
+  }
+
+  .custom-tab:hover {
     background-color: var(--accent-hope);
     color: white;
-    border-color: var(--accent-hope) var(--accent-hope) white;
+  }
+
+  .custom-tab.active {
+    background-color: var(--accent-hope);
+    /* color: white; */
+    box-shadow: 0 0 0 2px var(--accent-hope);
   }
 
   .slider-wrapper {
@@ -2131,27 +2999,32 @@
 
   #legend {
     position: absolute;
-    bottom: 30px;
+    top: 50%;
     right: 30px;
-    width: 200px;
-    height: 50px;
+    transform: translateY(-50%);
+    width: auto;
+    height: 200px;
     display: flex;
-    flex-direction: column;
+    flex-direction: row; /* ← horizontal layout */
     align-items: center;
     font-size: 0.8rem;
+    background: white;
+    padding: 8px 12px;
+    border-radius: 6px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    z-index: 10;
   }
 
   .income-legend-gradient {
-    width: 100%;
-    height: 12px;
+    width: 12px;
+    height: 100%;
     background: linear-gradient(
-      to right,
-      #e0f3db 0%,
-      #a8ddb5 10%,
-      #7bccc4 20%,
-      #43a2ca 40%,
-      #0868ac 60%,
-      #084081 80%
+      to top,
+      #ffffb2,  /* low income */
+      #fdbb84,
+      #fc4e2a,
+      #9932cc,
+      #4b0082   /* high income */
     );
     border: 1px solid #ccc;
     border-radius: 4px;
@@ -2159,16 +3032,16 @@
   }
 
   .demographics-legend-gradient {
-    width: 100%;
-    height: 12px;
+    width: 12px;
+    height: 100%;
     background: linear-gradient(
-      to right,
-      #f7fbff 0%,
-      #d2e3f3 10%,
-      #a6bddb 30%,
-      #74a9cf 50%,
-      #2b8cbe 70%,
-      #045a8d 90%
+      to top,
+      #c6dbef 0%,     /* was #f7fbff → now a soft but visible blue */
+      #9ecae1 20%,    /* slightly stronger */
+      #6baed6 40%,    /* medium light blue */
+      #4292c6 60%,    /* medium */
+      #2171b5 80%,    /* medium dark */
+      #084594 100%    /* dark navy blue */
     );
     border: 1px solid #ccc;
     border-radius: 4px;
@@ -2176,17 +3049,17 @@
   }
 
   .family-legend-gradient {
-    width: 100%;
-    height: 12px;
+    width: 12px;
+    height: 100%;
     background: linear-gradient(
-      to right,
-      #fff7ec 0%,
-      #fee8c8 2%,
-      #fdbb84 5%,
-      #fc8d59 10%,
-      #ef6548 20%,
-      #d7301f 40%,
-      #990000 60%
+      to top,
+      #fddbc7 0%,   /* deeper light coral */
+      #fcae91 5%,   /* coral-orange */
+      #fb6a4a 15%,  /* strong orange-red */
+      #de2d26 30%,  /* red */
+      #a50f15 50%,  /* dark red */
+      #7f0000 70%,  /* very dark red */
+      #4d0000 100%  /* maroon */
     );
     border: 1px solid #ccc;
     border-radius: 4px;
@@ -2194,9 +3067,31 @@
   }
 
   .legend-labels {
-    width: 100%;
-    display: flex;
-    justify-content: space-between;
+    position: relative;
+    height: 100%;
+    width: 25px;
+  }
+
+  .legend-label {
+    position: absolute;
+    left: 3px;
+    transform: translateY(-50%);
+    font-size: 0.8rem;
+    color: #5c4a56; /* Or match your theme */
+  }
+
+  .legend-label.top {
+    top: 0%;
+    transform: translateY(0); /* top aligned */
+  }
+
+  .legend-label.middle {
+    top: 50%; /* center aligned */
+  }
+
+  .legend-label.bottom {
+    top: 100%;
+    transform: translateY(-100%); /* bottom aligned */
   }
 
   .info-box {
@@ -2205,7 +3100,7 @@
     right: 30px;
     background-color: white;
     padding: 10px 15px;
-    border: 2px solid #006400; /* dark green border */
+    border: 2px solid #801fb8; /* dark green border */
     border-radius: 6px;
     box-shadow: 0 2px 8px rgba(0,0,0,0.2);
     font-size: 0.9rem;
@@ -2218,7 +3113,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    margin: 0 2rem;
+    margin: 0 0rem;
     position: relative;
   }
 
@@ -2227,8 +3122,8 @@
   }
 
   .toggle-label {
-    width: 160px;
-    height: 44px;
+    width: 120px;
+    height: 35px;
     background-color: var(--accent-hope); /* soft sage green */
     border-radius: 50px;
     display: flex;
@@ -2238,7 +3133,7 @@
     position: relative;
     cursor: pointer;
     font-weight: bold;
-    font-size: 0.95rem;
+    font-size: 0.75rem;
     color: white;
     transition: all 0.3s;
     overflow: hidden;
@@ -2246,10 +3141,10 @@
 
   .toggle-thumb {
     position: absolute;
-    left: 4px;
+    left: 1px;
     top: 4px;
-    width: 36px;
-    height: 36px;
+    width: 27px;
+    height: 27px;
     background-color: white;
     border-radius: 50%;
     transition: all 0.3s ease;
@@ -2261,7 +3156,7 @@
   }
 
   .toggle-input:checked + .toggle-label .toggle-thumb {
-    transform: translateX(116px); /* move thumb right */
+    transform: translateX(90px); /* move thumb right */
   }
 
   .toggle-text {
@@ -2361,16 +3256,14 @@
     position: relative;
   }
 
-
-
 </style>
 
 <div class="nav-dots">
-  <a href="#home" data-tooltip="Home"></a>
-  <a href="#history-intro" data-tooltip="History"></a>
-  <a href="#key-takeaways" data-tooltip="Key Takeaways"></a>
-  <a href="#price" data-tooltip="Affordability"></a>
-  <a href="#timeline" data-tooltip="Timeline"></a>
-  <a href="#map" data-tooltip="Explorer"></a>
-  <!-- <a href="#development" data-tooltip="Development"></a> -->
+  <a href="#home" data-tooltip="Home" class="home-icon" aria-label="Go to Home Page"></a>
+  <a href="#housing_struggle" data-tooltip="Housing Struggles" aria-label="Go to Housing Struggles Section"></a>
+  <a href="#housing_timeline" data-tooltip="Housing Timeline" aria-label="Go to Housing Timeline Section"></a>
+  <a href="#key-takeaways" data-tooltip="Key Takeaways" aria-label="Go to Key Takeaways Section"></a>
+  <a href="#price" data-tooltip="Affordability" aria-label="Affordability"></a>
+  <a href="#timeline" data-tooltip="Housing Growth" aria-label="Go to Housing Growth Section"></a>
+  <a href="#map" data-tooltip="Housing Access" aria-label="Go to Housing Access Section"></a>
 </div>
