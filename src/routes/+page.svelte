@@ -17,6 +17,7 @@
   let mapcPopCsvData = new Map();
   let activeTab = 'income'; // default tab
   let usePercentage = true; // true = show %; false = show raw counts
+  let showBottom = false; // true = show bottom 10; false = show top 10
 
   // Precomputed cache
   let incomeCache = new Map();
@@ -79,9 +80,9 @@
   // Housing timeline
   let timelineDataMap = new Map();
   let timelineMaxUnits = 0;
-  let barSvg, barX, barY;
-  let selectedYear = 2025; // default year for timeline
-  let searchQuery = ''; // for filtering municipalities
+  let selectedYear = 2020; // default year for timeline
+  let densityCsvData = new Map();
+  let stackedBarData = [];
 
   // compliance scatterplot
   let compScatterplotData = [];
@@ -98,6 +99,7 @@
     const yearMuniAcc = await fetch('housing_timeline/year_municipality_accumulation_filtered.json').then(res => res.json());
     const complianceCsv = await d3.csv('single_family_zoning/compliance_muni_census.csv');
     const mapcPopCsv = await d3.csv('housing_timeline/mapc_region_towns_w_population.csv');
+    const densityCsv = await d3.csv('housing_timeline/housing_units_cumulative_by_type.csv');
 
     // Build CSV map
     singleFamilyCsvData = new Map();
@@ -112,7 +114,13 @@
     mapcPopCsv.forEach(row => {
       mapcPopCsvData.set(parseInt(row.town_id), row);
     });
-
+    densityCsv.forEach(row => {
+      if (!densityCsvData.has(row.Municipality)) {
+        densityCsvData.set(row.Municipality, []);
+      }
+      densityCsvData.get(row.Municipality).push(row);
+    });
+    
     // Build unit price map
     const unitPriceMap = new Map();
     unitPriceCsv.forEach(d => {
@@ -120,7 +128,6 @@
         unitPriceMap.set(d.muni.trim().toLowerCase(), parseFloat(d.average_unit_price));
       }
     });
-    // console.log("Unit Price Map: ", unitPriceMap);
 
     // Build precomputed cache
     singleFamilyCsv.forEach(row => {
@@ -273,7 +280,6 @@
       };
     }).filter(d => d.avgIncome !== null && d.avgUnitPrice !== null);
 
-    // console.log('Scatter Data', scatterData);
   }
 
   function onSearch(event) {
@@ -333,183 +339,195 @@
     });
   }
 
-  function initBarChart() {
-    const margin = { top: 40, right: 30, bottom: 70, left: 80 };
-    const width = 1000 - margin.left - margin.right;
-    const height = 500 - margin.top - margin.bottom;
+  function initDensityBarChart() {
+    const margin = { top: 20, right: 20, bottom: 80, left: 60 };
 
-    barSvg = d3.select("#timeline-map")
-      .append("svg")
+    const container = d3.select("#density-bar-chart");
+    container.selectAll("svg").remove(); // Clear old chart if any
+
+    // ✅ Must come after container is defined
+    const containerWidth = container.node().clientWidth;
+    const containerHeight = container.node().clientHeight;
+
+    const width = containerWidth - margin.left - margin.right;
+    const height = containerHeight - margin.top - margin.bottom;
+
+    const svg = container.append("svg")
       .attr("viewBox", `0 0 ${width + margin.left + margin.right} ${height + margin.top + margin.bottom}`)
       .attr("preserveAspectRatio", "xMidYMid meet")
       .append("g")
-      .attr("width", width + margin.left + margin.right)
-      .attr("height", height + margin.top + margin.bottom)
       .attr("transform", `translate(${margin.left},${margin.top})`);
 
-    barX = d3.scaleBand()
-      .range([0, width])
-      .padding(0.2);
+    // ✅ Add white background behind chart
+    svg.append("rect")
+      .attr("width", width + margin.left + margin.right)
+      .attr("height", height + margin.top + margin.bottom)
+      .attr("x", -margin.left)
+      .attr("y", -margin.top)
+      .attr("fill", "white");
+    
+    // ✅ Create tooltip div only once, attached to <body>
+    const tooltip = d3.select("body")
+      .append("div")
+      .attr("class", "tooltip")
+      .style("position", "absolute")
+      .style("background", "white")
+      .style("padding", "6px 10px")
+      .style("border", "1px solid #ccc")
+      .style("border-radius", "6px")
+      .style("pointer-events", "none")
+      .style("font-size", "12px")
+      .style("opacity", 0);
 
-    barY = d3.scaleLinear()
-      .domain([0, timelineMaxUnits]) // ✅ fix the domain once
-      .range([height, 0]);
+    // ✅ Store globally for use in updateDensityBarChart
+    window.densityTooltip = tooltip;
 
-    barSvg.append("g")
-      .attr("class", "x-axis")
-      .attr("transform", `translate(0,${height})`);
+    // Global
+    window.densityBarSvg = svg;
+    window.densityBarX = d3.scaleBand().range([0, width]).padding(0.2);
+    window.densityBarY = d3.scaleLinear().range([height, 0]);
+    window.densityColor = d3.scaleOrdinal()
+      .domain(["Single-Family", "Multi-Family", "Condo", "Other", "Mobile Home"])
+      .range(["#cab2d6", "#fb9a99", "#a6cee3", "#fdbf6f", "#b2df8a"]);
+    
+    // Axes
+    svg.append("g").attr("class", "x-axis").attr("transform", `translate(0,${height})`);
+    svg.append("g").attr("class", "y-axis");
 
-    barSvg.append("g")
-      .attr("class", "y-axis");
-
-    // X-axis label
-    barSvg.append("text")
+    // Axis labels
+    svg.append("text")
+      .attr("x", width / 2)
+      .attr("y", height + 60)
       .attr("text-anchor", "middle")
-      .attr("x", (1000 - 80 - 30) / 2)  // width minus margins divided by 2
-      .attr("y", 500 - 40 + 50)          // height minus top margin plus some padding
-      .text("Municipality")
-      .style("font-size", "14px");
+      .style("font-size", "14px")
+      .style("fill", "#5a4e4d")
+      .text("Municipality");
 
-    // Y-axis label
-    barSvg.append("text")
-      .attr("text-anchor", "middle")
+    svg.append("text")
       .attr("transform", "rotate(-90)")
-      .attr("x", -(500 - 40 - 70) / 2)   // height minus margins divided by 2
-      .attr("y", -60)                    // place it to the left of y-axis
-      .text("Total Units Built (up to selected year)")
-      .style("font-size", "14px");
+      .attr("y", -45)
+      .attr("x", -height / 2)
+      .attr("text-anchor", "middle")
+      .style("font-size", "14px")
+      .style("fill", "#5a4e4d")
+      .text("Housing Density (units per 10,000 sq mi)");
   }
 
-  function updateBarChart(selectedYear) {
 
-    barSvg.selectAll(".muni-group").remove(); 
+  function updateDensityBarChart(selectedYear) {
+    stackedBarData = [];
+    densityCsvData.forEach((rows, muni) => {
+      // Get the row matching the selected year) 
+      const yearRow = rows.find(r => r.Year === String(selectedYear));
+      if (!yearRow) return;
 
-    const data = Array.from(timelineDataMap.entries())
-      .map(([muni, entries]) => {
-        return {
-          muni, // muni is already the municipality name
-          totalUnits: entries
-            .filter(entry => entry.year <= selectedYear)
-            .reduce((sum, entry) => sum + entry.totalUnits, 0)
-        };
+      const totalUnits =
+        +yearRow["Single-Family"] +
+        +yearRow["Multi-Family"] +
+        +yearRow["Condo"] +
+        +yearRow["Other"] +
+        +yearRow["Mobile Home"];
+
+      const landAreaEntry = mapcPopCsvData.get(parseInt(yearRow["TOWN_ID"], 10))['aland20'];
+      if (!landAreaEntry) return; // skip if no land area entry
+
+      const density = totalUnits / +landAreaEntry;
+
+      stackedBarData.push({
+        muni,
+        density,
+        types: {
+          "Single-Family": +yearRow["Single-Family"],
+          "Multi-Family": +yearRow["Multi-Family"],
+          "Condo": +yearRow["Condo"],
+          "Other": +yearRow["Other"],
+          "Mobile Home": +yearRow["Mobile Home"],
+        },
+        year: +yearRow["Year"],
+        Area: +landAreaEntry,
+      });
+    });
+
+    showBottom = document.getElementById("densityRankSwitch")?.checked;
+    const categories = ["Single-Family", "Multi-Family", "Condo", "Other", "Mobile Home"];
+
+    const data = stackedBarData.filter(d => d.year === selectedYear);
+
+    const stacked = data.map(d => {
+      const entry = { Municipality: d.muni };
+      let total = 0;
+      categories.forEach(cat => {
+        entry[cat] = d.Area > 0 ? (d.types[cat] / d.Area) * 10000 : 0;
+        total += entry[cat];
+      });
+      entry.totalDensity = total;
+      return entry;
+    });
+
+    // 🔁 Top or Bottom 10 by totalDensity
+    const sorted = stacked
+      .filter(d => isFinite(d.totalDensity))
+      .sort((a, b) => showBottom ? a.totalDensity - b.totalDensity : b.totalDensity - a.totalDensity)
+      .slice(0, 10);
+
+    // Stack format
+    const stackedSeries = d3.stack().keys(categories.slice().reverse())(sorted);
+
+    densityBarX.domain(sorted.map(d => d.Municipality));
+    densityBarY.domain([0, d3.max(sorted, d => d.totalDensity) * 1.1]);
+
+    // Axes
+    densityBarSvg.select(".x-axis")
+      .transition()
+      .duration(400)
+      .call(d3.axisBottom(densityBarX))
+      .selectAll("text")
+      .attr("transform", "rotate(-40)")
+      .style("text-anchor", "end")
+      .style("font-size", "11px");
+
+    densityBarSvg.select(".y-axis")
+      .transition()
+      .duration(400)
+      .call(d3.axisLeft(densityBarY).ticks(6));
+
+    // Clear old bars
+    densityBarSvg.selectAll(".bar-group").remove();
+
+    const tooltip = window.densityTooltip;
+
+    // Draw new bars
+    const groups = densityBarSvg.selectAll(".bar-group")
+      .data(stackedSeries)
+      .enter()
+      .append("g")
+      .attr("class", "bar-group")
+      .attr("fill", d => densityColor(d.key));
+
+    groups.selectAll("rect")
+      .data(d => d)
+      .enter()
+      .append("rect")
+      .attr("x", d => densityBarX(d.data.Municipality))
+      .attr("y", d => densityBarY(d[1]))
+      .attr("height", d => Math.max(0, densityBarY(d[0]) - densityBarY(d[1])))
+      .attr("width", densityBarX.bandwidth())
+      .on("mouseover", function(event, d) {
+        const category = d3.select(this.parentNode).datum().key;
+        const value = d.data[category];
+        tooltip.transition().duration(100).style("opacity", 0.95);
+        tooltip
+          .html(
+            `<b>${d.data.Municipality}</b><br>` +
+            `Category: <b>${category}</b><br>` +
+            `Density: ${value.toFixed(1)} units / 10,000 sq mi<br>` +
+            `Total: ${d.data.totalDensity.toFixed(1)}`
+          )
+          .style("left", (event.pageX + 10) + "px")
+          .style("top", (event.pageY - 28) + "px");
       })
-      .filter(d => d && d.totalUnits > 0);
-
-    // console.log("Bar Chart Data:", data);
-
-    // Update X and Y domain
-    barX.domain(data.map(d => d.muni));
-
-    // 🧱 Define how thick each "brick" is vertically
-    const brickHeightUnits = 200000; // 5000 housing units per brick (you can adjust)
-    const maxBricks = d3.max(data, d => Math.ceil(d.totalUnits / brickHeightUnits));
-
-  // barY.domain([0, brickHeightUnits * maxBricks]);
-
-  barSvg.select(".x-axis")
-    .transition()
-    .duration(500)
-    .call(d3.axisBottom(barX))
-    .selectAll("text")
-    .attr("transform", "rotate(-45)")
-    .style("text-anchor", "end")
-    .style("font-size", "10px");
-
-  barSvg.select(".y-axis")
-    .transition()
-    .duration(500)
-    .call(d3.axisLeft(barY));
-
-  // const bars = barSvg.selectAll(".bar")
-  //   .data(data, d => d.muni);
-
-  // bars.enter()
-  //   .append("rect")
-  //   .attr("class", "bar")
-  //   .attr("x", d => barX(d.muni))
-  //   .attr("width", barX.bandwidth())
-  //   .attr("y", barY(0)) // Start from 0 for animation
-  //   .attr("height", 0)
-  //   .attr("fill", "#69b3a2")
-  //   .transition()
-  //   .duration(500)
-  //   .attr("y", d => barY(d.totalUnits))
-  //   .attr("height", d => barY(0) - barY(d.totalUnits));
-
-  // bars.transition()
-  //   .duration(500)
-  //   .attr("x", d => barX(d.muni))
-  //   .attr("width", barX.bandwidth())
-  //   .attr("y", d => barY(d.totalUnits))
-  //   .attr("height", d => barY(0) - barY(d.totalUnits))
-  //   .attr("fill", "#69b3a2");
-
-  // bars.exit().remove();
-  const muniGroups = barSvg.selectAll(".muni-group")
-    .data(data, d => d.muni);
-
-  const muniGroupsEnter = muniGroups.enter()
-    .append("g")
-    .attr("class", "muni-group")
-    .attr("transform", d => `translate(${barX(d.muni)},0)`);
-
-  // Remove old
-  muniGroups.exit().remove();
-
-  muniGroupsEnter.each(function(d) {
-  const group = d3.select(this);
-  const numBricks = Math.floor(d.totalUnits / brickHeightUnits);
-
-//   group.selectAll(".brick")
-//     .data(d3.range(numBricks)) // Create an array [0,1,2,...,numBricks-1]
-//     .enter()
-//     .append("rect")
-//     .attr("class", "brick")
-//     .attr("x", 0)
-//     .attr("width", barX.bandwidth())
-//     .attr("y", barY(0)) // Start at bottom
-//     .attr("height", 0) // Start collapsed
-//     .attr("fill", "#69b3a2")
-//     .transition()
-//     .duration(800)
-//     .delay((_, i) => i * 30) // slight delay per brick for rising animation
-//     .attr("y", (i) => barY((i + 1) * brickHeightUnits))
-//     .attr("height", (_, i) => barY(i * brickHeightUnits) - barY((i + 1) * brickHeightUnits));
-// });
-  //   const brickHeight = (barY(0) - barY(brickHeightUnits)); 
-  //   // How many pixels tall 1 brick should be
-
-  //   group.selectAll(".brick")
-  // .data(d3.range(numBricks))
-  // .enter()
-  // .append("image")
-  // .attr("xlink:href", (d, i) => (i % 2 === 0 ? "/images/lego_block.png" : "/images/lego_block.png")) // alternate colors
-  // .attr("width", barX.bandwidth())
-  // .attr("height", brickHeight)
-  // .attr("x", 0)
-  // .attr("y", () => barY(0)) // Start collapsed at bottom
-  // .transition()
-  // .duration(200)
-  // .delay((_, i) => i * 30)
-  // .attr("y", (i) => barY(d.totalUnits) + i * brickHeight);
-  // });
-
-  group.selectAll(".brick")
-    .data(d3.range(numBricks))
-    .enter()
-    .append("image")
-    .attr("xlink:href", "/images/lego_block.png") // 🧱 your lego piece
-    .attr("width", barX.bandwidth())
-    .attr("height", 90)  // 🧱 each brick height
-    .attr("x", 0)
-    .attr("y", barY(0))
-    .transition()
-    .duration(100)
-    .delay((_, i) => i * 30)
-    // .attr("y", (i) => barY((i) * brickHeightUnits));
-    .attr("y", (i) => barY((i + 6) * brickHeightUnits))
-  });
-}
+      .on("mouseout", () => tooltip.transition().duration(200).style("opacity", 0));
+  }
 
   function initComplianceScatterplot() {
     const margin = { top: 20, right: 20, bottom: 50, left: 60 };
@@ -628,169 +646,168 @@
   }
 
   function initComplianceBoxPlot() {
-  const margin = { top: 20, right: 30, bottom: 50, left: 60 };
-  const width = 500 - margin.left - margin.right;
-  const height = 300 - margin.top - margin.bottom;
+    const margin = { top: 20, right: 30, bottom: 50, left: 60 };
+    const width = 500 - margin.left - margin.right;
+    const height = 300 - margin.top - margin.bottom;
 
-  // Bins
-  const bins = [
-    { range: [0, 25], label: "0–25%" },
-    { range: [25, 50], label: "25–50%" },
-    { range: [50, 75], label: "50–75%" },
-    { range: [75, 100], label: "75–100%" },
-  ];
+    // Bins
+    const bins = [
+      { range: [0, 25], label: "0–25%" },
+      { range: [25, 50], label: "25–50%" },
+      { range: [50, 75], label: "50–75%" },
+      { range: [75, 100], label: "75–100%" },
+    ];
 
-  // Prepare SVG
-  const container = d3.select("#compliance-boxplot");
-  container.selectAll("svg").remove();
+    // Prepare SVG
+    const container = d3.select("#compliance-boxplot");
+    container.selectAll("svg").remove();
 
-  const svg = container.append("svg")
-    .attr("viewBox", `0 0 ${width + margin.left + margin.right} ${height + margin.top + margin.bottom}`)
-    .append("g")
-    .attr("transform", `translate(${margin.left},${margin.top})`);
+    const svg = container.append("svg")
+      .attr("viewBox", `0 0 ${width + margin.left + margin.right} ${height + margin.top + margin.bottom}`)
+      .append("g")
+      .attr("transform", `translate(${margin.left},${margin.top})`);
 
-  // Tooltip
-  const tooltip = container.append("div")
-    .style("position", "absolute")
-    .style("background", "white")
-    .style("padding", "6px 10px")
-    .style("border", "1px solid #ccc")
-    .style("border-radius", "6px")
-    .style("font-size", "12px")
-    .style("pointer-events", "none")
-    .style("opacity", 0);
+    // Tooltip
+    const tooltip = container.append("div")
+      .style("position", "absolute")
+      .style("background", "white")
+      .style("padding", "6px 10px")
+      .style("border", "1px solid #ccc")
+      .style("border-radius", "6px")
+      .style("font-size", "12px")
+      .style("pointer-events", "none")
+      .style("opacity", 0);
 
-  // Bin and preprocess
-  const binned = bins.map(bin => {
-    const members = compScatterplotData.filter(d =>
-      d.singleFamilyPercent >= bin.range[0] &&
-      d.singleFamilyPercent < bin.range[1]
-    );
-    members.sort((a, b) => a.compliantZoningRate - b.compliantZoningRate);
-    const values = members.map(d => d.compliantZoningRate / 100);
-    const q1 = d3.quantile(values, 0.25);
-    const q2 = d3.quantile(values, 0.5);
-    const q3 = d3.quantile(values, 0.75);
-    const iqr = q3 - q1;
-    const min = d3.min(values);
-    const max = d3.max(values);
-    const regionMode = d3.rollup(members, v => v.length, d => d.region);
-    const dominantRegion = [...regionMode.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? "Unknown";
-    return {
-      ...bin,
-      values, members, q1, q2, q3, iqr, min, max, region: dominantRegion
-    };
-  });
-
-  const x = d3.scaleBand()
-    .domain(binned.map(d => d.label))
-    .range([0, width])
-    .paddingInner(0.4)
-    .paddingOuter(0.2);
-
-  const y = d3.scaleLinear()
-    .domain([0.8, 1.0])
-    .range([height, 0]);
-
-  // Axes
-  svg.append("g")
-    .attr("transform", `translate(0,${height})`)
-    .call(d3.axisBottom(x));
-
-  svg.append("g")
-    .call(d3.axisLeft(y).tickFormat(d3.format(".0%")));
-
-  svg.append("text")
-    .attr("x", width / 2)
-    .attr("y", height + 40)
-    .attr("text-anchor", "middle")
-    .text("% Single-Family Housing (Binned)");
-
-  svg.append("text")
-    .attr("transform", "rotate(-90)")
-    .attr("x", -height / 2)
-    .attr("y", -45)
-    .attr("text-anchor", "middle")
-    .text("Zoning Compliance Rate");
-
-  // Boxes
-  svg.selectAll(".box")
-    .data(binned)
-    .enter()
-    .append("rect")
-    .attr("class", "box")
-    .attr("x", d => x(d.label))
-    .attr("y", d => y(d.q3))
-    .attr("width", x.bandwidth())
-    .attr("height", d => y(d.q1) - y(d.q3))
-    .attr("fill", "#a6bddb")
-    .attr("stroke", "black")
-    .on("mouseover", (event, d) => {
-      tooltip.transition().duration(200).style("opacity", 0.9);
-      tooltip.html(`
-        <strong>${d.label}</strong><br/>
-        Count: ${d.values.length}<br/>
-        Q1: ${(d.q1 * 100).toFixed(1)}%<br/>
-        Median: ${(d.q2 * 100).toFixed(1)}%<br/>
-        Q3: ${(d.q3 * 100).toFixed(1)}%
-      `)
-        .style("left", `${event.pageX + 10}px`)
-        .style("top", `${event.pageY - 28}px`);
-    })
-    .on("mousemove", (event) => {
-      tooltip.style("left", `${event.pageX + 10}px`)
-        .style("top", `${event.pageY - 28}px`);
-    })
-    .on("mouseout", () => {
-      tooltip.transition().duration(300).style("opacity", 0);
+    // Bin and preprocess
+    const binned = bins.map(bin => {
+      const members = compScatterplotData.filter(d =>
+        d.singleFamilyPercent >= bin.range[0] &&
+        d.singleFamilyPercent < bin.range[1]
+      );
+      members.sort((a, b) => a.compliantZoningRate - b.compliantZoningRate);
+      const values = members.map(d => d.compliantZoningRate / 100);
+      const q1 = d3.quantile(values, 0.25);
+      const q2 = d3.quantile(values, 0.5);
+      const q3 = d3.quantile(values, 0.75);
+      const iqr = q3 - q1;
+      const min = d3.min(values);
+      const max = d3.max(values);
+      const regionMode = d3.rollup(members, v => v.length, d => d.region);
+      const dominantRegion = [...regionMode.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? "Unknown";
+      return {
+        ...bin,
+        values, members, q1, q2, q3, iqr, min, max, region: dominantRegion
+      };
     });
 
-  // Medians
-  svg.selectAll(".median-line")
-    .data(binned)
-    .enter()
-    .append("line")
-    .attr("class", "median-line")
-    .attr("x1", d => x(d.label))
-    .attr("x2", d => x(d.label) + x.bandwidth())
-    .attr("y1", d => y(d.q2))
-    .attr("y2", d => y(d.q2))
-    .attr("stroke", "black")
-    .attr("stroke-width", 2);
+    const x = d3.scaleBand()
+      .domain(binned.map(d => d.label))
+      .range([0, width])
+      .paddingInner(0.4)
+      .paddingOuter(0.2);
 
-  // Jittered individual points
-  const jitter = 0.2 * x.bandwidth();
+    const y = d3.scaleLinear()
+      .domain([0.8, 1.0])
+      .range([height, 0]);
 
-  svg.selectAll(".point")
-    .data(binned.flatMap(d => d.members.map(m => ({ ...m, bin: d.label }))))
-    .enter()
-    .append("circle")
-    .attr("cx", d => x(d.bin) + x.bandwidth() / 2 + (Math.random() - 0.5) * jitter)
-    .attr("cy", d => y(d.compliantZoningRate / 100))
-    .attr("r", 3)
-    .attr("fill", "#3690c0")
-    .attr("opacity", 0.6)
-    .attr("stroke", "#333")
-    .on("mouseover", (event, d) => {
-      tooltip.transition().duration(200).style("opacity", 0.9);
-      tooltip.html(`
-        <strong>${d.town || "Unknown"}</strong><br/>
-        % Single-Family: ${d.singleFamilyPercent.toFixed(1)}%<br/>
-        % Compliant Zoning: ${d.compliantZoningRate.toFixed(1)}%<br/>
-        Population: ${d.totalPopulation.toLocaleString()}<br/>
-      `)
-        .style("left", `${event.pageX + 10}px`)
-        .style("top", `${event.pageY - 28}px`);
-    })
-    .on("mousemove", (event) => {
-      tooltip.style("left", `${event.pageX + 10}px`)
-        .style("top", `${event.pageY - 28}px`);
-    })
-    .on("mouseout", () => {
-      tooltip.transition().duration(300).style("opacity", 0);
-    });
-}
+    // Axes
+    svg.append("g")
+      .attr("transform", `translate(0,${height})`)
+      .call(d3.axisBottom(x));
 
+    svg.append("g")
+      .call(d3.axisLeft(y).tickFormat(d3.format(".0%")));
+
+    svg.append("text")
+      .attr("x", width / 2)
+      .attr("y", height + 40)
+      .attr("text-anchor", "middle")
+      .text("% Single-Family Housing (Binned)");
+
+    svg.append("text")
+      .attr("transform", "rotate(-90)")
+      .attr("x", -height / 2)
+      .attr("y", -45)
+      .attr("text-anchor", "middle")
+      .text("Zoning Compliance Rate");
+
+    // Boxes
+    svg.selectAll(".box")
+      .data(binned)
+      .enter()
+      .append("rect")
+      .attr("class", "box")
+      .attr("x", d => x(d.label))
+      .attr("y", d => y(d.q3))
+      .attr("width", x.bandwidth())
+      .attr("height", d => y(d.q1) - y(d.q3))
+      .attr("fill", "#a6bddb")
+      .attr("stroke", "black")
+      .on("mouseover", (event, d) => {
+        tooltip.transition().duration(200).style("opacity", 0.9);
+        tooltip.html(`
+          <strong>${d.label}</strong><br/>
+          Count: ${d.values.length}<br/>
+          Q1: ${(d.q1 * 100).toFixed(1)}%<br/>
+          Median: ${(d.q2 * 100).toFixed(1)}%<br/>
+          Q3: ${(d.q3 * 100).toFixed(1)}%
+        `)
+          .style("left", `${event.pageX + 10}px`)
+          .style("top", `${event.pageY - 28}px`);
+      })
+      .on("mousemove", (event) => {
+        tooltip.style("left", `${event.pageX + 10}px`)
+          .style("top", `${event.pageY - 28}px`);
+      })
+      .on("mouseout", () => {
+        tooltip.transition().duration(300).style("opacity", 0);
+      });
+
+    // Medians
+    svg.selectAll(".median-line")
+      .data(binned)
+      .enter()
+      .append("line")
+      .attr("class", "median-line")
+      .attr("x1", d => x(d.label))
+      .attr("x2", d => x(d.label) + x.bandwidth())
+      .attr("y1", d => y(d.q2))
+      .attr("y2", d => y(d.q2))
+      .attr("stroke", "black")
+      .attr("stroke-width", 2);
+
+    // Jittered individual points
+    const jitter = 0.2 * x.bandwidth();
+
+    svg.selectAll(".point")
+      .data(binned.flatMap(d => d.members.map(m => ({ ...m, bin: d.label }))))
+      .enter()
+      .append("circle")
+      .attr("cx", d => x(d.bin) + x.bandwidth() / 2 + (Math.random() - 0.5) * jitter)
+      .attr("cy", d => y(d.compliantZoningRate / 100))
+      .attr("r", 3)
+      .attr("fill", "#3690c0")
+      .attr("opacity", 0.6)
+      .attr("stroke", "#333")
+      .on("mouseover", (event, d) => {
+        tooltip.transition().duration(200).style("opacity", 0.9);
+        tooltip.html(`
+          <strong>${d.town || "Unknown"}</strong><br/>
+          % Single-Family: ${d.singleFamilyPercent.toFixed(1)}%<br/>
+          % Compliant Zoning: ${d.compliantZoningRate.toFixed(1)}%<br/>
+          Population: ${d.totalPopulation.toLocaleString()}<br/>
+        `)
+          .style("left", `${event.pageX + 10}px`)
+          .style("top", `${event.pageY - 28}px`);
+      })
+      .on("mousemove", (event) => {
+        tooltip.style("left", `${event.pageX + 10}px`)
+          .style("top", `${event.pageY - 28}px`);
+      })
+      .on("mouseout", () => {
+        tooltip.transition().duration(300).style("opacity", 0);
+      });
+  }
 
   function onTabChange(tabName) {
     activeTab = tabName;
@@ -1615,7 +1632,7 @@
 
   function onTimelineChange(event) {
     selectedYear = parseInt(event.target.value);
-    updateBarChart(selectedYear);
+    updateDensityBarChart(selectedYear);
   }
 
   function initScatterplot() {
@@ -1857,8 +1874,8 @@
     await initZoningMap();
     // await initComplianceScatterplot();
     await initComplianceBoxPlot();
-    await initBarChart();
-    await updateBarChart(selectedYear);
+    await initDensityBarChart();
+    await updateDensityBarChart(selectedYear);
 
     const sections = document.querySelectorAll("section");
     const navLinks = document.querySelectorAll(".nav-dots a");
@@ -2150,50 +2167,65 @@
 
   <section id="timeline" class="alt-bg">
     <div style="display: flex; flex-wrap: wrap; gap: 2rem; align-items: stretch; min-height: 100vh;">
+    
       <!-- LEFT: Text Content -->
       <div style="flex: 1; min-width: 300px; background-color: rgba(255, 255, 255, 0.9); padding: 2rem; display: flex; flex-direction: column; justify-content: space-between;">
-        <div class="section-header">Emergence of New Housing Over Time</div>
-      </div>
-      <!-- RIGHT: Timeline Map -->
-      <div style="flex: 2; min-width: 500px; padding: 2rem 6rem 2rem 2rem;">
-        <!-- Flex Row: Search + Year slider -->
-        <div class="container-fluid d-flex justify-content-between align-items-center mb-4" style="max-width: 1200px; padding: 0 2rem;">
-          <!-- Left: Search Box -->
-          <div class="d-flex align-items-center gap-2">
-            <!-- <input
-              type="text"
-              placeholder="Search municipality..."
-              class="search-box"
-              bind:value={searchQuery}
-              on:input={onSearch}
-            /> -->
-          </div>
-      
-          <!-- Right: Year Label + Slider -->
-          <div class="d-flex align-items-center gap-3">
-            <span class="fw-bold" style="font-size: 1rem;">Year Selected: {selectedYear}</span>
-            <div class="slider-wrapper" style="width: 450px;">
-              <div class="slider-track">
-                <!-- (optional tick marks, similar to income slider) -->
-              </div>
-              <input
-                type="range"
-                min="1980"
-                max="2025"
-                step="1"
-                bind:value={selectedYear}
-                on:input={onTimelineChange}
-                class="form-range custom-slider"
-              />
+        <div>
+          <div class="section-header">Emergency of Housing Over Time</div>
+          
+          <p style="margin-top: 1rem; font-size: 0.95rem; line-height: 1.5;">
+            
+          </p>
+        </div>
+      </div>      
+  
+      <!-- RIGHT: Bar Chart + Top-Centered Slider -->
+      <div style="flex: 2; min-width: 500px; padding: 3rem 6rem 2rem 2rem; display: flex; flex-direction: column; align-items: center;">
+        <!-- Year Slider -->
+        <div class="d-flex flex-column align-items-center mb-4" style="width: 100%; max-width: 600px;">
+          <label for="density-year-slider" class="form-label fw-bold mb-2" style="font-size: 1rem;">Year Selected: <span id="density-year-label">{selectedYear}</span></label>
+          <div class="slider-wrapper" style="width: 100%;">
+            <div class="slider-track">
+              <div class="slider-segment" style="left: 25%;"></div>
+              <div class="slider-segment" style="left: 50%;"></div>
+              <div class="slider-segment" style="left: 75%;"></div>
+            </div>            
+            <input
+              id="density-year-slider"
+              type="range"
+              min="1985"
+              max="2025"
+              step="1"
+              value={selectedYear}
+              class="form-range custom-slider"
+              on:input={onTimelineChange}
+            />
+            <div class="slider-labels d-flex justify-content-between" style="font-size: 0.85rem; margin-top: 0.25rem;">
+              <span>1985</span><span>1995</span><span>2005</span><span>2015</span><span>2025</span>
             </div>
           </div>
         </div>
-      
-        <!-- Map Container -->
-        <div class="d-flex justify-content-center">
-          <div class="box" style="height: 600px; width: 100%; max-width: 1200px; background-color: #e9e3d9;">
-            <div id="timeline-map" style="position: relative; height: 100%; width: 100%;">
-              <!-- Timeline Mapbox will go here -->
+
+        <!-- Bar Chart -->
+        <div style="width: 100%; max-width: 1200px;">
+          <div class="box" style="height: 600px; width: 100%; background-color: #e9e3d9; overflow: hidden;">
+            <div id="density-bar-chart" style="position: relative; height: 100%; width: 100%; overflow: visible;">
+              <!-- Top/Bottom Density toggle in top-right corner of plot -->
+              <div style="position: absolute; top: 16px; right: 16px; z-index: 10;">
+                <div class="density-toggle-switch">
+                  <input 
+                    type="checkbox" 
+                    id="densityRankSwitch" 
+                    class="toggle-input" 
+                    bind:checked={showBottom}
+                    on:change={() => { updateDensityBarChart(selectedYear); }}
+                  />
+                  <label class="toggle-label" style="font-size: 0.9rem; width: 160px" for="densityRankSwitch">
+                    <span class="toggle-text">{showBottom ? 'Bottom 10 Densed' : 'Top 10 Densed'}</span>
+                    <span class="toggle-thumb" style="width: 27px; height: 27px; border-radius: 50%; right: 2px; transform: {showBottom ? 'translateX(130px)' : 'translateX(0)'};"></span>
+                  </label>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -2325,42 +2357,6 @@
               </div>
             </div>            
           </div>          
-
-          <!-- By Demographics Tab -->
-          <div class="tab-pane fade" id="demographics" role="tabpanel">
-            <div class="row g-4 justify-content-center">
-              <div class="col-md-8">
-                <div class="box" style="height: 500px; background-color: #e9e3d9;">
-                  <div class="d-flex justify-content-center align-items-center h-100 text-dark">
-                    [ Demographic-Based Interactive Map ]
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <!-- By Family Size Tab -->
-          <div class="tab-pane fade" id="family" role="tabpanel">
-            <div class="row g-4 justify-content-center">
-              <div class="col-md-4">
-                <div class="box">
-                  <label for="familySize" class="form-label fw-bold">Family Size</label>
-                  <select id="familySize" class="form-select">
-                    <option>1 person</option>
-                    <option>2 people</option>
-                    <option>3+</option>
-                  </select>
-                </div>
-              </div>
-              <div class="col-md-8">
-                <div class="box" style="height: 500px; background-color: #e9e3d9;">
-                  <div class="d-flex justify-content-center align-items-center h-100 text-dark">
-                    [ Family Size-Based Interactive Map ]
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
         </div>
       </div>
     </div>
