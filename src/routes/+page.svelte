@@ -3,6 +3,7 @@
   import mapboxgl from "mapbox-gl";
   import * as d3 from "d3";
   import { parse } from "svelte/compiler";
+  import { draw } from "svelte/transition";
 
   const MAPBOX_TOKEN = 'pk.eyJ1Ijoic3N1byIsImEiOiJjbTk5Z2NnNWIwNDh5MnJwdjFwZGhnZmU2In0.DlLRt3C3qdBGprZR4SvRVQ';
 
@@ -395,9 +396,8 @@
     const margin = { top: 20, right: 20, bottom: 80, left: 60 };
 
     const container = d3.select("#density-bar-chart");
-    container.selectAll("svg").remove(); // Clear old chart if any
+    container.selectAll("svg").remove();
 
-    // ✅ Must come after container is defined
     const containerWidth = container.node().clientWidth;
     const containerHeight = container.node().clientHeight;
 
@@ -410,15 +410,13 @@
       .append("g")
       .attr("transform", `translate(${margin.left},${margin.top})`);
 
-    // ✅ Add white background behind chart
     svg.append("rect")
       .attr("width", width + margin.left + margin.right)
       .attr("height", height + margin.top + margin.bottom)
       .attr("x", -margin.left)
       .attr("y", -margin.top)
       .attr("fill", "white");
-    
-    // ✅ Create tooltip div only once, attached to <body>
+
     const tooltip = d3.select("body")
       .append("div")
       .attr("class", "tooltip")
@@ -431,22 +429,17 @@
       .style("font-size", "12px")
       .style("opacity", 0);
 
-    // ✅ Store globally for use in updateDensityBarChart
     window.densityTooltip = tooltip;
-
-    // Global
     window.densityBarSvg = svg;
     window.densityBarX = d3.scaleBand().range([0, width]).padding(0.2);
     window.densityBarY = d3.scaleLinear().range([height, 0]);
     window.densityColor = d3.scaleOrdinal()
       .domain(["Single-Family", "Multi-Family", "Condo", "Other", "Mobile Home"])
       .range(["#cab2d6", "#fb9a99", "#a6cee3", "#fdbf6f", "#b2df8a"]);
-    
-    // Axes
+
     svg.append("g").attr("class", "x-axis").attr("transform", `translate(0,${height})`);
     svg.append("g").attr("class", "y-axis");
 
-    // Axis labels
     svg.append("text")
       .attr("x", width / 2)
       .attr("y", height + 60)
@@ -463,13 +456,14 @@
       .style("font-size", "14px")
       .style("fill", "#5a4e4d")
       .text("Housing Density (units per 10,000 sq meter)");
-  }
 
+    // Additional line chart container
+    d3.select("#density-line-chart").selectAll("svg").remove();
+  }
 
   function updateDensityBarChart(selectedYear) {
     stackedBarData = [];
     densityCsvData.forEach((rows, muni) => {
-      // Get the row matching the selected year) 
       const yearRow = rows.find(r => r.Year === String(selectedYear));
       if (!yearRow) return;
 
@@ -481,7 +475,7 @@
         +yearRow["Mobile Home"];
 
       const landAreaEntry = mapcPopCsvData.get(parseInt(yearRow["TOWN_ID"], 10))['aland20'];
-      if (!landAreaEntry) return; // skip if no land area entry
+      if (!landAreaEntry) return;
 
       const density = totalUnits / +landAreaEntry;
 
@@ -504,7 +498,6 @@
     const categories = ["Single-Family", "Multi-Family", "Condo", "Other", "Mobile Home"];
 
     const data = stackedBarData.filter(d => d.year === selectedYear);
-
     const stacked = data.map(d => {
       const entry = { Municipality: d.muni };
       let total = 0;
@@ -516,19 +509,16 @@
       return entry;
     });
 
-    // 🔁 Top or Bottom 10 by totalDensity
     const sorted = stacked
       .filter(d => isFinite(d.totalDensity))
       .sort((a, b) => showBottom ? a.totalDensity - b.totalDensity : b.totalDensity - a.totalDensity)
       .slice(0, 10);
 
-    // Stack format
     const stackedSeries = d3.stack().keys(categories.slice().reverse())(sorted);
 
     densityBarX.domain(sorted.map(d => d.Municipality));
     densityBarY.domain([0, d3.max(sorted, d => d.totalDensity) * 1.1]);
 
-    // Axes
     densityBarSvg.select(".x-axis")
       .transition()
       .duration(400)
@@ -543,12 +533,10 @@
       .duration(400)
       .call(d3.axisLeft(densityBarY).ticks(6));
 
-    // Clear old bars
     densityBarSvg.selectAll(".bar-group").remove();
 
     const tooltip = window.densityTooltip;
 
-    // Draw new bars
     const groups = densityBarSvg.selectAll(".bar-group")
       .data(stackedSeries)
       .enter()
@@ -564,6 +552,8 @@
       .attr("y", d => densityBarY(d[1]))
       .attr("height", d => Math.max(0, densityBarY(d[0]) - densityBarY(d[1])))
       .attr("width", densityBarX.bandwidth())
+      .style("stroke", "#333")
+      .style("stroke-width", "0px")
       .on("mouseover", function(event, d) {
         const category = d3.select(this.parentNode).datum().key;
         const value = d.data[category];
@@ -577,9 +567,228 @@
           )
           .style("left", (event.pageX + 10) + "px")
           .style("top", (event.pageY - 28) + "px");
+
+          d3.select(this).attr("stroke", "#5c5145").attr("stroke-width", 2);
       })
-      .on("mouseout", () => tooltip.transition().duration(200).style("opacity", 0));
+      .on("mouseout", function() {
+        d3.select(this).attr("stroke", null);
+        tooltip.transition().duration(200).style("opacity", 0);
+      })
+      .on("click", function(event, d) {
+        const clickedMuni = d.data.Municipality;
+        const muniRows = densityCsvData.get(clickedMuni);
+        if (muniRows) {
+          drawLineChart(clickedMuni, muniRows);
+        }
+      });
+
   }
+
+  function drawLineChart(muni = "Cambridge") {
+  const margin = { top: 35, right: 30, bottom: 40, left: 80 };
+  const container = d3.select("#cumulative-line-chart");
+  container.selectAll("*").remove();
+
+  const width = container.node().clientWidth - margin.left - margin.right;
+  const height = 180;
+
+  const svg = container.append("svg")
+    .attr("viewBox", `0 0 ${width + margin.left + margin.right} ${height + margin.top + margin.bottom}`)
+    .attr("preserveAspectRatio", "xMidYMid meet")
+    .append("g")
+    .attr("transform", `translate(${margin.left},${margin.top})`);
+
+  const raw = densityCsvData.get(muni);
+  if (!raw) return;
+
+  // Get land area
+  const area = mapcPopCsvData.get(+raw[0]["TOWN_ID"])?.aland20;
+  if (!area) return;
+
+  // Compute rate of change (unit increase from prior year / area)
+  const years = raw.map(d => +d.Year).sort((a, b) => a - b);
+  const chartData = [];
+
+  for (let i = 1; i < years.length; i++) {
+    const prev = raw.find(d => +d.Year === years[i - 1]);
+    const curr = raw.find(d => +d.Year === years[i]);
+
+    if (prev && curr) {
+      const change = (curr.TotalUnits - prev.TotalUnits) / (+area || 1) * 10000;
+      chartData.push({ year: +curr.Year, rate: change });
+    }
+  }
+
+  const x = d3.scaleLinear()
+    .domain(d3.extent(chartData, d => d.year))
+    .range([0, width]);
+
+  const y = d3.scaleLinear()
+    .domain([d3.min(chartData, d => d.rate), d3.max(chartData, d => d.rate)])
+    // .domain([0, d3.max(chartData, d => d.rate) * 1.1])
+    .range([height, 0]);
+
+  const line = d3.line()
+    .x(d => x(d.year))
+    .y(d => y(d.rate))
+    .curve(d3.curveMonotoneX);
+
+  svg.append("path")
+    .datum(chartData)
+    .attr("fill", "none")
+    .attr("stroke", "#9b6e63")
+    .attr("stroke-width", 3)
+    .attr("d", line);
+
+  // Axes
+  svg.append("g")
+    .attr("transform", `translate(0,${height})`)
+    .call(d3.axisBottom(x).tickFormat(d3.format("d")));
+
+  svg.append("g")
+    .call(d3.axisLeft(y));
+
+  // Axis labels
+  svg.append("text")
+    .attr("x", width / 2)
+    .attr("y", height + 40)
+    .attr("text-anchor", "middle")
+    .style("font-size", "13px")
+    .style("fill", "#5a4e4d")
+    .text("Year");
+
+  svg.append("text")
+    .attr("transform", "rotate(-90)")
+    .attr("y", -60)
+    .attr("x", -height / 2)
+    .attr("text-anchor", "middle")
+    .style("font-size", "13px")
+    .style("fill", "#5a4e4d")
+    .text("New Units Built per 10,000 sq meter");
+
+  // Title
+  svg.append("text")
+    .attr("x", width / 2)
+    .attr("y", -20)
+    .attr("text-anchor", "middle")
+    .style("font-size", "16px")
+    .style("fill", "#5c4a61")
+    .style("font-weight", 600)
+    .text(`${muni} | Housing Growth Rate Over Time`);
+
+    svg.selectAll("circle")
+    .data(rateData)
+    .enter()
+    .append("circle")
+    .attr("cx", d => x(d.year))
+    .attr("cy", d => y(d.rate))
+    .attr("r", 4)
+    .attr("fill", "#7c6757")
+    .attr("opacity", 0)
+    .on("mouseover", (event, d) => {
+      tooltip.transition().duration(100).style("opacity", 0.95);
+      tooltip
+        .html(`<b>${selectedMuni}</b><br>${d.year}: <b>${d.rate.toFixed(2)}</b> new units per 10,000 sqm`)
+        .style("left", `${event.pageX + 10}px`)
+        .style("top", `${event.pageY - 28}px`);
+    })
+    .on("mouseout", () => {
+      tooltip.transition().duration(200).style("opacity", 0);
+    });
+
+    svg.selectAll("highlight-circle")
+    .data(rateData.filter(d => d.rate > 0.8)) // ← adjust threshold
+    .enter()
+    .append("circle")
+    .attr("cx", d => x(d.year))
+    .attr("cy", d => y(d.rate))
+    .attr("r", 5)
+    .attr("fill", "#c95f5f")
+    .attr("stroke", "#5a4e4d")
+    .attr("stroke-width", 1.5);
+
+
+}
+
+
+
+  function initCumulativeLineChart() {
+  const margin = { top: 20, right: 30, bottom: 40, left: 60 };
+  const container = d3.select("#cumulative-line-chart");
+  container.selectAll("svg").remove();
+
+  const width = container.node().clientWidth - margin.left - margin.right;
+  const height = container.node().clientHeight - margin.top - margin.bottom;
+
+  const svg = container.append("svg")
+    .attr("viewBox", `0 0 ${width + margin.left + margin.right} ${height + margin.top + margin.bottom}`)
+    .attr("preserveAspectRatio", "xMidYMid meet")
+    .append("g")
+    .attr("transform", `translate(${margin.left},${margin.top})`);
+
+  window.lineChartSvg = svg;
+  window.lineChartWidth = width;
+  window.lineChartHeight = height;
+  window.lineChartX = d3.scaleLinear().range([0, width]);
+  window.lineChartY = d3.scaleLinear().range([height, 0]);
+
+  svg.append("g").attr("class", "x-axis").attr("transform", `translate(0,${height})`);
+  svg.append("g").attr("class", "y-axis");
+
+  svg.append("text")
+    .attr("x", width / 2)
+    .attr("y", height + 30)
+    .attr("text-anchor", "middle")
+    .style("font-size", "12px")
+    .style("fill", "#5a4e4d")
+    .text("Year");
+
+  svg.append("text")
+    .attr("transform", "rotate(-90)")
+    .attr("y", -40)
+    .attr("x", -height / 2)
+    .attr("text-anchor", "middle")
+    .style("font-size", "12px")
+    .style("fill", "#5a4e4d")
+    .text("Cumulative Units Built");
+}
+
+function updateLineChart(municipalityName) {
+  if (!densityCsvData.has(municipalityName)) return;
+
+  const svg = window.lineChartSvg;
+  const x = window.lineChartX;
+  const y = window.lineChartY;
+
+  const rows = densityCsvData.get(municipalityName);
+  const data = rows.map(row => ({
+    year: +row.Year,
+    total: ["Single-Family", "Multi-Family", "Condo", "Other", "Mobile Home"]
+      .reduce((sum, cat) => sum + (+row[cat] || 0), 0)
+  })).sort((a, b) => a.year - b.year);
+
+  x.domain(d3.extent(data, d => d.year));
+  y.domain([0, d3.max(data, d => d.total) * 1.1]);
+
+  svg.select(".x-axis").transition().duration(400).call(d3.axisBottom(x).ticks(6).tickFormat(d3.format("d")));
+  svg.select(".y-axis").transition().duration(400).call(d3.axisLeft(y).ticks(5));
+
+  const line = d3.line()
+    .x(d => x(d.year))
+    .y(d => y(d.total));
+
+  svg.selectAll(".line-path").remove();
+
+  svg.append("path")
+    .datum(data)
+    .attr("class", "line-path")
+    .attr("fill", "none")
+    .attr("stroke", "#a46497")
+    .attr("stroke-width", 2)
+    .attr("d", line);
+}
+
+
 
   function initComplianceScatterplot() {
     const margin = { top: 20, right: 20, bottom: 50, left: 60 };
@@ -1999,6 +2208,8 @@
     await initComplianceBoxPlot();
     await initDensityBarChart();
     await updateDensityBarChart(selectedYear);
+    await initCumulativeLineChart();
+    await drawLineChart('Cambridge');
 
     const sections = document.querySelectorAll("section");
     const navLinks = document.querySelectorAll(".nav-dots a");
@@ -2358,47 +2569,52 @@
 
       <div style="display: flex; flex-wrap: nowrap; gap: 2rem; justify-content: center;">
         <!-- Tool 1: Scatterplot -->
-        <div style="flex: 1; background: white; padding: 2rem; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); text-align: center;">
-          <h4 style="font-size: 1.4rem; color: #d4a593; margin-bottom: 1rem;">💬 <br><br>Affordability Explorer</h4>
-          <p style="font-size: 1.1rem;">Compare average household incomes to home purchase prices across municipalities.</p>
-          <ul style="text-align: left; margin-top: 1rem; padding-left: 1.5rem; font-size: 1.0rem; line-height: 1.6;">
-            <li>Identify affordable and unaffordable regions</li>
-            <li>Hover to view detailed municipality-level data</li>
-            <li>Highlight specific towns via search</li>
-          </ul>
-          <a href="#price" style="display: inline-block; margin-top: 1.5rem; padding: 10px 20px; background: #F8D6C5; color: #5c5145; border-radius: 6px; font-weight: 600; text-decoration: none;">Explore</a>
+        <div style="flex: 1; background: white; padding: 2rem; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); display: flex; flex-direction: column; justify-content: space-between;">
+          <div style="text-align: center;">
+            <h4 style="font-size: 1.4rem; color: #d4a593; margin-bottom: 1rem;">💬 <br><br>Affordability Explorer</h4>
+            <p style="font-size: 1.1rem;">Compare average household incomes to home purchase prices across municipalities.</p>
+            <ul style="text-align: left; margin-top: 1rem; padding-left: 1.5rem; font-size: 1.0rem; line-height: 1.6;">
+              <li>Identify affordable and unaffordable regions</li>
+              <li>Hover to view detailed municipality-level data</li>
+              <li>Highlight specific towns via search</li>
+            </ul>
+          </div>
+          <a href="#price" style="align-self: center; margin-top: 2rem; padding: 10px 20px; background: #F8D6C5; color: #5c5145; border-radius: 6px; font-weight: 600; text-decoration: none;">Explore</a>
         </div>
-
+      
         <!-- Tool 2: Timeline -->
-        <div style="flex: 1; background: white; padding: 2rem; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); text-align: center;">
-          <h4 style="font-size: 1.4rem; color: #d4a593; margin-bottom: 1rem;">📅 <br><br> Housing Growth Timeline</h4>
-          <p style="font-size: 1.1rem;">Track the expansion of new housing units across Greater Boston municipalities from 1980 to 2025.</p>
-          <ul style="text-align: left; margin-top: 1rem; padding-left: 1.5rem; font-size: 1.0rem; line-height: 1.6;">
-            <li>Adjust the year slider to see cumulative housing built up to a selected year.</li>
-            <li>Compare towns to spot where growth has accelerated — or slowed.</li>
-          </ul>
-          <a href="#timeline" style="display: inline-block; margin-top: 1.5rem; padding: 10px 20px; background: #F8D6C5; color: #5c5145; border-radius: 6px; font-weight: 600; text-decoration: none;">Explore</a>
+        <div style="flex: 1; background: white; padding: 2rem; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); display: flex; flex-direction: column; justify-content: space-between;">
+          <div style="text-align: center;">
+            <h4 style="font-size: 1.4rem; color: #d4a593; margin-bottom: 1rem;">📅 <br><br>Housing Growth Timeline</h4>
+            <p style="font-size: 1.1rem;">Track the expansion of new housing units across Greater Boston municipalities from 1985 to 2025.</p>
+            <ul style="text-align: left; margin-top: 1rem; padding-left: 1.5rem; font-size: 1.0rem; line-height: 1.6;">
+              <li>Adjust the year slider to see cumulative housing built up to a selected year</li>
+              <li>Compare towns to spot where growth has accelerated — or slowed</li>
+            </ul>
+          </div>
+          <a href="#timeline" style="align-self: center; margin-top: 2rem; padding: 10px 20px; background: #F8D6C5; color: #5c5145; border-radius: 6px; font-weight: 600; text-decoration: none;">Explore</a>
         </div>
-
-        <!-- Tool 3: Interactive Housing Explorer -->
-        <div style="flex: 1; background: white; padding: 2rem; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); text-align: center;">
-          <h4 style="font-size: 1.4rem; color: #d4a593; margin-bottom: 1rem;">🗺️ <br><br> Interactive Housing Explorer</h4>
-          <p style="font-size: 1.1rem;">Filter and map neighborhoods based on household income, demographics, or family size.</p>
-          <ul style="text-align: left; margin-top: 1rem; padding-left: 1.5rem; font-size: 1.0rem; line-height: 1.6;">
-            <li>Switch between income, demographic, and family size</li>
-            <li>Toggle between density or absolute numbers</li>
-            <li>Compare access and opportunity across regions</li>
-          </ul>
-          <a href="#map" style="display: inline-block; margin-top: 1.5rem; padding: 10px 20px; background: #F8D6C5; color: #5c5145; border-radius: 6px; font-weight: 600; text-decoration: none;">Explore</a>
+      
+        <!-- Tool 3: Interactive Map -->
+        <div style="flex: 1; background: white; padding: 2rem; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); display: flex; flex-direction: column; justify-content: space-between;">
+          <div style="text-align: center;">
+            <h4 style="font-size: 1.4rem; color: #d4a593; margin-bottom: 1rem;">🗺️ <br><br>Housing Access Explorer</h4>
+            <p style="font-size: 1.1rem;">Filter and map neighborhoods based on household income, demographics, or family size.</p>
+            <ul style="text-align: left; margin-top: 1rem; padding-left: 1.5rem; font-size: 1.0rem; line-height: 1.6;">
+              <li>Switch between income, demographic, and family size</li>
+              <li>Toggle between density or absolute numbers</li>
+              <li>Compare access and opportunity across regions</li>
+            </ul>
+          </div>
+          <a href="#map" style="align-self: center; margin-top: 2rem; padding: 10px 20px; background: #F8D6C5; color: #5c5145; border-radius: 6px; font-weight: 600; text-decoration: none;">Explore</a>
         </div>
-      </div>
+      </div>      
 
       <div style="margin-top: 3rem; background: #F8D6C5; padding: 1.5rem; border-radius: 8px;">
         <h4 style="font-size: 1.4rem; margin-top: 0; color: #5c5145;">Why It Matters:</h4>
         <ul style="font-size: 1.1rem; margin-bottom: 0; line-height: 1.6;">
-          <li>Expose the mismatch between incomes and housing costs</li>
-          <li>Uncover where housing growth has accelerated — or stalled</li>
-          <li>Highlight zoning barriers and the path to inclusive reform</li>
+          <li>Zoning laws decide what gets built—and who gets to live where. In Greater Boston, these rules have long shaped access to opportunity, limiting housing choices for moderate-income families.</li>
+          <li>Our tools make the impact of zoning visible: where housing supply has stalled, where exclusion persists, and where reform can open doors. If we want a fairer housing future, we need to rethink the rules.</li>
         </ul>        
       </div>
     </div>
@@ -2479,7 +2695,9 @@
             Despite four decades of opportunity, <span style="color: #7c6757; font-weight: 600;">most towns added shockingly few homes</span>. Even in Cambridge — the region’s densest municipality — <span style="color: #7c6757; font-weight: 600;">only 12 units per 10,000 square meters</span> were added over 40 years. And just <span style="color: #7c6757; font-weight: 600;">2.4 of those were single-family homes</span>, making up <span style="color: #7c6757; font-weight: 600;">less than 7%</span> of the total.<br><br>
           
             This pattern highlights a deeper tension: while <span style="color: #7c6757; font-weight: 600;">single-family zoning still dominates land use</span>, it does not reflect where housing growth is happening. Instead, <span style="color: #7c6757; font-weight: 600;">restrictive zoning has throttled supply</span> — especially in places where single-family rules remain the norm. <span style="color: #7c6757; font-weight: 600;">Without reform, these patterns will continue to limit access</span> for the next generation.
-          </p>                
+          </p>    
+
+          <div id="cumulative-line-chart" style="margin-top: 2rem;"></div>          
         </div>
       </div>      
   
@@ -2529,8 +2747,11 @@
                     <span class="toggle-thumb" style="width: 27px; height: 27px; border-radius: 50%; right: 2px; transform: {showBottom ? 'translateX(130px)' : 'translateX(0)'};"></span>
                   </label>
                 </div>
-              </div>
+              </div> 
             </div>
+            <p style="font-size: 0.95rem; color: #8a5d51; font-style: italic; margin-bottom: 0.5rem;">
+              Click a municipality in the bar chart to explore how many homes were built over time.
+            </p>    
           </div>
         </div>
       </div>
@@ -2545,12 +2766,13 @@
           <div class="section-header">Housing Access Across Communities</div>
           
           <p style="margin-top: 1rem; font-size: 0.95rem; line-height: 1.5;">
-            To understand <strong>how zoning reforms affect affordable housing in Greater Boston</strong>, we need to examine both <strong>who lives where</strong> and <strong>how local zoning laws shape the housing landscape</strong>.
-            The map on the right shows the <strong>demographic and income distribution</strong> of residents, helping renters and buyers earning <strong>60–100% of the Area Median Income (AMI)</strong> identify communities with similar profiles.
-            On the left, the boxplot connects this to zoning policy by showing how <strong>single-family zoning patterns</strong> relate to each municipality's <strong>compliance with state housing mandates</strong>.
-            We find that communities with <strong>higher shares of single-family housing</strong> often show <strong>less consistent compliance</strong>, pointing to how <strong>restrictive zoning may limit affordable housing opportunities</strong>.
-            Together, these tools highlight <strong>where zoning creates barriers</strong>—and <strong>where reform could open doors</strong> for more equitable housing access.
-          </p>
+            To understand <strong>how zoning reforms affect affordable housing in Greater Boston</strong>, we need to examine not just <strong>what types of housing are allowed</strong>, but also <strong>who lives where—and why</strong>. 
+            The map on the right shows the <strong>demographic and income distribution</strong> of residents, helping renters and buyers earning <strong>60–100% of the Area Median Income (AMI)</strong> see which communities are accessible to them.
+            By toggling filters, we can uncover patterns in <strong>where different racial, income, and family groups tend to live</strong>—and more importantly, where they are excluded. 
+            On the left, the boxplot links this to policy by showing how <strong>single-family zoning patterns</strong> relate to each municipality's <strong>compliance with state housing mandates</strong>. 
+            Communities with <strong>higher shares of single-family zoning</strong> tend to show <strong>lower and more variable compliance</strong>, suggesting that <strong>restrictive zoning may limit housing access</strong> for moderate-income households. 
+            Together, these tools make <strong>the impact of zoning policies visible</strong>—highlighting <strong>where zoning creates barriers</strong> and <strong>where reform could open doors</strong> to more equitable housing opportunities.
+          </p>          
         </div>
       
         <!-- 🔽 Bottom-aligned scatterplot -->
@@ -2885,14 +3107,6 @@
       border: 1px solid #ddd4c5;
       padding: 2rem;
       margin-bottom: 2rem;
-  }
-
-  .analysis-box {
-      padding-left: 1rem;
-      font-style: italic;
-      color: var(--neutral2);
-      border-left: 4px solid var(--accent-hope);
-      background: #f6fdf6;
   }
 
   footer {
