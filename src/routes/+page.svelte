@@ -260,14 +260,8 @@
     const svg = d3.select("#lot-size-chart");
     if (svg.empty()) return;
 
-    console.log("Updating Lot Size Chart for:", muniName);
-    console.log("Muni Summary Map:", muniSummaryMap);
     const data = muniSummaryMap.get(muniName.trim().toLowerCase());
-    console.log("Lot Size Data:", data);
-    if (!data) {
-      console.warn("No lot size data for", muniName);
-      return;
-    }
+    if (!data) return;
 
     const lotSizeData = [
       { label: "25th", value: data.lot_25 },
@@ -277,27 +271,35 @@
 
     svg.selectAll("*").remove();
 
-    const margin = { top: 10, right: 10, bottom: 30, left: 40 };
-    const width = parseInt(svg.attr("width")) - margin.left - margin.right;
-    const height = parseInt(svg.attr("height")) - margin.top - margin.bottom;
+    const margin = { top: 30, right: 20, bottom: 40, left: 50 };
+    const width = parseInt(svg.style("width")) - margin.left - margin.right;
+    const height = parseInt(svg.style("height")) - margin.top - margin.bottom;
 
-    const g = svg.append("g").attr("transform", `translate(${margin.left},${margin.top})`);
+    const g = svg.append("g")
+      .attr("transform", `translate(${margin.left},${margin.top})`);
 
     const x = d3.scaleBand()
       .domain(lotSizeData.map(d => d.label))
       .range([0, width])
-      .padding(0.2);
+      .padding(0.3);
 
     const y = d3.scaleLinear()
       .domain([0, d3.max(lotSizeData, d => d.value)])
       .range([height, 0]);
 
+    // Axes
     g.append("g")
       .attr("transform", `translate(0,${height})`)
-      .call(d3.axisBottom(x));
+      .call(d3.axisBottom(x))
+      .selectAll("text")
+      .style("font-size", "10px");
 
-    g.append("g").call(d3.axisLeft(y).ticks(3));
+    g.append("g")
+      .call(d3.axisLeft(y).ticks(3))
+      .selectAll("text")
+      .style("font-size", "10px");
 
+    // Bars
     g.selectAll("rect")
       .data(lotSizeData)
       .enter()
@@ -307,6 +309,32 @@
       .attr("width", x.bandwidth())
       .attr("height", d => height - y(d.value))
       .attr("fill", "#a6b9a3");
+
+    // Chart title
+    svg.append("text")
+      .attr("x", parseInt(svg.style("width")) / 2)
+      .attr("y", 18)
+      .attr("text-anchor", "middle")
+      .style("font-size", "14px")
+      .style("font-weight", "bold")
+      .text("Lot Size Distribution");
+
+    // Y-axis label
+    svg.append("text")
+      .attr("text-anchor", "middle")
+      .attr("transform", `rotate(-90)`)
+      .attr("x", -parseInt(svg.style("height")) / 2)
+      .attr("y", 14)
+      .style("font-size", "10px")
+      .text("Lot Size (sqft)");
+
+    // X-axis label
+    svg.append("text")
+      .attr("x", parseInt(svg.style("width")) / 2)
+      .attr("y", parseInt(svg.style("height")) - 6)
+      .attr("text-anchor", "middle")
+      .style("font-size", "10px")
+      .text("Percentile");
   }
 
   async function initZoningMap() {
@@ -1304,7 +1332,8 @@
         <b>Avg Income:</b> ${formatMillions(match.avgIncome)}<br/>
         <b>Avg Unit Price:</b> ${formatMillions(match.avgUnitPrice)}<br/>
         <b>Years to Pay Off*:</b> ${match.yearsToPayoff.toFixed(1)}<br/>
-        <svg id="lot-size-chart" width="200" height="200"></svg>
+        <br/>
+        <svg id="lot-size-chart" width="350" height="250"></svg>
       `;
     }
 
@@ -1615,14 +1644,6 @@
                 <div style="min-width: 150px; width: 100%; max-width: 300px;">
                   <h6 style="text-align: center;">Lot Size (sqft)</h6>
                   <svg id="lot-size-chart" width="100%" height="120"></svg>
-                </div>
-                <div style="min-width: 150px; width: 100%; max-width: 300px;">
-                  <h6 style="text-align: center;">Zoning Compliance</h6>
-                  <svg id="compliance-chart" width="100%" height="120"></svg>
-                </div>
-                <div style="min-width: 150px; width: 100%; max-width: 300px;">
-                  <h6 style="text-align: center;">Avg FAR</h6>
-                  <svg id="far-chart" width="100%" height="120"></svg>
                 </div>
               </div>
             </div>
